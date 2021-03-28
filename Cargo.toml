@@ -1,0 +1,26 @@
+[package]
+name = "balls"
+version = "0.1.0"
+authors = ["Shahar Papini <spiritusp@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies.sdl2]
+features = ['gfx']
+
+[dependencies.legion]
+git="https://github.com/amethyst/legion"
+branch="master"
+
+[dependencies.nalgebra]
+[dependencies.rand]
+[dependencies.priority-queue]
+version = ">=1.1.1"
+[dependencies.ordered-float]
+version = ">=2.1.1"
+[dependencies.rayon]
+version = ">=1.5.0"
+[dependencies.fnv]
+[dependencies.rand_pcg]
+[dependencies.maybe-owned]
