@@ -50,6 +50,7 @@ impl GenerationalCollisionEntity {
 #[derive(Default)]
 pub struct CollisionDetectionData {
     spatial_buckets: FnvHashMap<(i32, i32), FnvHashSet<GenerationalCollisionEntity>>,
+    last_box: FnvHashMap<GenerationalCollisionEntity, (i32, i32, i32, i32)>,
     collisions_events: PriorityQueue<
         (GenerationalCollisionEntity, GenerationalCollisionEntity),
         OrderedFloat<f32>,
@@ -87,6 +88,7 @@ impl CollisionDetectionData {
         time_delta: f32,
     ) {
         let (i0, i1, j0, j1) = get_cell_range_for_movement(collidable, time_delta);
+        self.last_box.insert(entity, (i0, i1, j0, j1));
         // Find candidates using spatial hash mapping.
         let mut results = FnvHashSet::<GenerationalCollisionEntity>::default();
 
@@ -109,9 +111,23 @@ impl CollisionDetectionData {
             let candidate_collidable = fetch_collidable_copy(world, candidate_entity);
             let collisions_sol = solve_collision(collidable, &candidate_collidable);
             if let Some(collision_time) = collisions_sol {
-                if (collision_time >= time) && (collision_time - time <= time_delta) {
+                if (collision_time >= time - EPSILON)
+                    && (collision_time <= time + time_delta + EPSILON)
+                {
                     self.collisions_events
                         .push((entity, candidate_entity), OrderedFloat(collision_time));
+                }
+            }
+        }
+    }
+
+    fn remove(&mut self, entity: GenerationalCollisionEntity) {
+        if let Some((i0, i1, j0, j1)) = self.last_box.remove(&entity) {
+            for i in i0..i1 {
+                for j in j0..j1 {
+                    if let Some(cell_set) = self.spatial_buckets.get_mut(&(i, j)) {
+                        cell_set.remove(&entity);
+                    }
                 }
             }
         }
@@ -289,7 +305,10 @@ pub fn collision_handle(
                 collision_detection_data.collisions_events.len(),
             );
         }
-        // println!("Collision {:?} {:?} at {}", collision_entity0, collision_entity1, t.0);
+        // println!(
+        //     "Collision {:?} {:?} at {}",
+        //     collision_entity0, collision_entity1, collision_time
+        // );
 
         // TODO: Consider separating collision_generation to its own (optional?) component.
         let collidable0 = fetch_collidable_copy(world, collision_entity0);
@@ -304,6 +323,7 @@ pub fn collision_handle(
         );
         if let Some((new_collidable0, new_collidable1)) = result {
             if let Some(c) = new_collidable0 {
+                collision_detection_data.remove(collision_entity0);
                 write_collidable(world, collision_entity0.entity, &c);
                 collision_detection_data.add(
                     world,
@@ -314,6 +334,7 @@ pub fn collision_handle(
                 );
             }
             if let Some(c) = new_collidable1 {
+                collision_detection_data.remove(collision_entity1);
                 write_collidable(world, collision_entity1.entity, &c);
                 collision_detection_data.add(
                     world,
@@ -333,6 +354,7 @@ pub fn collision_handle(
 }
 
 fn write_collidable(world: &mut SubWorld, entity: Entity, collidable: &Collidable) -> () {
+    // println!("Writing {:?} at {:?}", collidable, entity);
     match collidable {
         Collidable::Ball(ball) => {
             *(world
@@ -416,15 +438,15 @@ fn collide_ball_ball<'a>(
 ) -> (Option<Collidable<'a>>, Option<Collidable<'a>>) {
     let mut ball0 = ball.clone();
     let mut ball1 = other_ball.clone();
-    if (t - ball0.initial_time < EPSILON) && (t - ball1.initial_time < EPSILON) {
-        // Collision event too close. Make the balls stop.
-        ball0.velocity *= 0.;
-        ball1.velocity *= 0.;
-        return (
-            Some(Collidable::Ball(MaybeOwned::from(ball0))),
-            Some(Collidable::Ball(MaybeOwned::from(ball1))),
-        );
-    }
+    // if (t - ball0.initial_time < EPSILON) && (t - ball1.initial_time < EPSILON) {
+    //     // Collision event too close. Make the balls stop.
+    //     ball0.velocity *= 0.;
+    //     ball1.velocity *= 0.;
+    //     return (
+    //         Some(Collidable::Ball(MaybeOwned::from(ball0))),
+    //         Some(Collidable::Ball(MaybeOwned::from(ball1))),
+    //     );
+    // }
     advance_single_ball(&mut ball0, t);
     advance_single_ball(&mut ball1, t);
     ball0.collision_generation += 1;

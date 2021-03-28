@@ -74,6 +74,7 @@ fn init_balls(world: &mut World) {
     let n_balls = 1000;
     let mut balls = std::vec::Vec::<(Ball,)>::new();
     balls.reserve(n_balls);
+
     while balls.len() < n_balls {
         let angle = rng.gen_range(0.0..(std::f32::consts::TAU));
         let speed = rng.gen_range(3.0..10.0);
@@ -102,6 +103,20 @@ fn init_balls(world: &mut World) {
         }
         balls.push((ball,));
     }
+    // balls.push((Ball {
+    //     position: Vector2::new(10., 100.),
+    //     velocity: Vector2::new(0., 0.),
+    //     radius: 10.,
+    //     initial_time: 0.,
+    //     collision_generation: 0,
+    // },));
+    // balls.push((Ball {
+    //     position: Vector2::new(200., 100.),
+    //     velocity: Vector2::new(-100., 0.),
+    //     radius: 100.,
+    //     initial_time: 0.,
+    //     collision_generation: 0,
+    // },));
     world.extend(balls);
 }
 
