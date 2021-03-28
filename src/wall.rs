@@ -5,3 +5,10 @@ pub struct Wall {
     pub p0: Vector2<f32>,
     pub p1: Vector2<f32>,
 }
+
+impl Wall {
+    pub fn normal(&self) -> Vector2<f32> {
+        let diff = self.p1 - self.p0;
+        return Vector2::new(-diff.y, diff.x).normalize();
+    }
+}

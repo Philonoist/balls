@@ -71,19 +71,20 @@ fn init_walls(world: &mut World) {
 fn init_balls(world: &mut World) {
     // let mut rng = rand::thread_rng();
     let mut rng = Pcg64::new(0xcafef00dd15ea5e5, 0xa02bdbf7bb3c0a7ac28fa16a64abf96);
-    let n_balls = 2000;
+    let n_balls = 1000;
     let mut balls = std::vec::Vec::<(Ball,)>::new();
     balls.reserve(n_balls);
     while balls.len() < n_balls {
         let angle = rng.gen_range(0.0..(std::f32::consts::TAU));
-        let speed = rng.gen_range(3.0..30.0);
+        let speed = rng.gen_range(3.0..10.0);
+        let radius = rng.gen_range(1.0..20.0);
         let ball = Ball {
             position: Vector2::new(
-                rng.gen_range(0.0..(WIDTH as f32)),
-                rng.gen_range(0.0..(HEIGHT as f32)),
+                rng.gen_range(radius..(WIDTH as f32 - radius)),
+                rng.gen_range(radius..(HEIGHT as f32 - radius)),
             ),
             velocity: Vector2::new(speed * angle.cos(), speed * angle.sin()),
-            radius: rng.gen_range(0.0..20.0),
+            radius: radius,
             initial_time: 0.,
             collision_generation: 0,
         };
@@ -123,6 +124,7 @@ pub fn main() {
     let mut world = World::default();
 
     // Initialize world.
+    init_walls(&mut world);
     init_balls(&mut world);
     let mut resources = Resources::default();
     resources.insert(canvas);

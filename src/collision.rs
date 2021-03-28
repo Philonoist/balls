@@ -109,7 +109,7 @@ impl CollisionDetectionData {
             let candidate_collidable = fetch_collidable_copy(world, candidate_entity);
             let collisions_sol = solve_collision(collidable, &candidate_collidable);
             if let Some(collision_time) = collisions_sol {
-                if (collision_time > time) && (collision_time <= time + time_delta) {
+                if (collision_time >= time) && (collision_time - time <= time_delta) {
                     self.collisions_events
                         .push((entity, candidate_entity), OrderedFloat(collision_time));
                 }
@@ -151,27 +151,49 @@ fn solve_collision(collidable: &Collidable, other_collidable: &Collidable) -> Op
 }
 
 fn solve_collision_ball_wall(ball: &Ball, wall: &Wall) -> Option<f32> {
-    //TODO;
-    None
+    // TODO: segments;
+    let normal = wall.normal();
+    // normal*(pb-pw+vt)=r.
+    let a = normal.dot(&ball.velocity);
+    let d = normal.dot(&(ball.position - wall.p0));
+    let b = d - ball.radius;
+    if d * a > 0. {
+        // If relative position and relative speed are at the same direction, then the ball is moving away.
+        // No collision here.
+        return None;
+    }
+
+    // if a.abs() < EPSILON {
+    //     return None;
+    // }
+    return Some(-b / a + ball.initial_time);
 }
 
 fn solve_collision_ball_ball(ball: &Ball, other_ball: &Ball) -> Option<f32> {
     // Shift to start at the same time.
     // d(p0+v0(t-t0), p1+v1(t-t1)) <= r0+r1.
     // || p0-v0t0-p1+v1t1 +t(v0-v1) ||^2 <= (r0+r1)^2.
-    let slope = ball.velocity - other_ball.velocity;
+    let dv = ball.velocity - other_ball.velocity;
+    let dx = ball.position - other_ball.position;
+
     let affine0 = ball.position - ball.velocity * ball.initial_time;
     let affine1 = other_ball.position - other_ball.velocity * other_ball.initial_time;
     let affine = affine0 - affine1;
 
-    let a = slope.dot(&slope);
-    let b = slope.dot(&affine) * 2.;
+    let proj = dv.dot(&dx);
+    if proj > 0. {
+        // Ball are moving away.
+        return None;
+    }
+
+    let a = dv.dot(&dv);
+    let b = dv.dot(&affine) * 2.;
     let c =
         affine.dot(&affine) - (ball.radius + other_ball.radius) * (ball.radius + other_ball.radius);
 
-    if a <= EPSILON {
-        return None;
-    }
+    // if a <= EPSILON {
+    //     return None;
+    // }
 
     let disc = b * b - 4. * a * c;
     if disc < 0. {
@@ -242,6 +264,7 @@ pub fn collision(
 
 #[system]
 #[write_component(Ball)]
+#[write_component(Wall)]
 pub fn collision_handle(
     world: &mut SubWorld,
     #[resource] time: &SimulationTime,
@@ -259,6 +282,13 @@ pub fn collision_handle(
             .pop()
             .expect("Impossible");
         let collision_time = ordered_t.0;
+        if collision_detection_data.collisions_events.len() > 200 {
+            println!(
+                "Queue pop t={}, len={}",
+                collision_time,
+                collision_detection_data.collisions_events.len(),
+            );
+        }
         // println!("Collision {:?} {:?} at {}", collision_entity0, collision_entity1, t.0);
 
         // TODO: Consider separating collision_generation to its own (optional?) component.
@@ -273,81 +303,27 @@ pub fn collision_handle(
             collision_time,
         );
         if let Some((new_collidable0, new_collidable1)) = result {
-            write_collidable(world, collision_entity0.entity, &new_collidable0);
-            write_collidable(world, collision_entity1.entity, &new_collidable1);
-            collision_detection_data.add(
-                world,
-                collision_entity0.next(),
-                &new_collidable0,
-                collision_time,
-                time.time + simulation_params.time_delta - collision_time,
-            );
-            collision_detection_data.add(
-                world,
-                collision_entity1.next(),
-                &new_collidable1,
-                collision_time,
-                time.time + simulation_params.time_delta - collision_time,
-            );
+            if let Some(c) = new_collidable0 {
+                write_collidable(world, collision_entity0.entity, &c);
+                collision_detection_data.add(
+                    world,
+                    collision_entity0.next(),
+                    &c,
+                    collision_time,
+                    time.time + simulation_params.time_delta - collision_time,
+                );
+            }
+            if let Some(c) = new_collidable1 {
+                write_collidable(world, collision_entity1.entity, &c);
+                collision_detection_data.add(
+                    world,
+                    collision_entity1.next(),
+                    &c,
+                    collision_time,
+                    time.time + simulation_params.time_delta - collision_time,
+                );
+            }
         }
-
-        // if ce0.generation != ball0.collision_generation {
-        //     continue;
-        // }
-        // if ce1.generation != ball1.collision_generation {
-        //     continue;
-        // }
-
-        // // Advance until current time.
-        // ball0.position += ball0.velocity * (t.0 - ball0.initial_time);
-        // ball1.position += ball1.velocity * (t.0 - ball0.initial_time);
-        // ball0.initial_time = t.0;
-        // ball1.initial_time = t.0;
-        // ball0.collision_generation += 1;
-        // ball1.collision_generation += 1;
-
-        // let mass0 = ball0.radius * ball0.radius;
-        // let mass1 = ball1.radius * ball1.radius;
-        // let dx = ball0.position - ball1.position;
-        // let dv = ball0.velocity - ball1.velocity;
-        // let d2 = (ball0.radius + ball1.radius) * (ball0.radius + ball1.radius);
-        // let a = 2. / (mass0 + mass1) * dv.dot(&dx) / d2 * dx;
-        // ball0.velocity -= mass1 * a;
-        // if ball0.velocity.norm() > 100. {
-        //     ball0.velocity *= 100. / ball0.velocity.norm();
-        // }
-        // ball1.velocity += mass0 * a;
-        // if ball1.velocity.norm() > 100. {
-        //     ball1.velocity *= 100. / ball1.velocity.norm();
-        // }
-
-        // // Write back.
-        // *(world
-        //     .entry_mut(ce0.entity)
-        //     .unwrap()
-        //     .get_component_mut::<Ball>()
-        //     .unwrap()) = ball0;
-        // *(world
-        //     .entry_mut(ce1.entity)
-        //     .unwrap()
-        //     .get_component_mut::<Ball>()
-        //     .unwrap()) = ball1;
-
-        // // Check again against collisions system.
-        // collision_detection_data.add(
-        //     world,
-        //     ce0.entity,
-        //     &ball0,
-        //     t.0,
-        //     time.time + simulation_params.time_delta - t.0,
-        // );
-        // collision_detection_data.add(
-        //     world,
-        //     ce1.entity,
-        //     &ball1,
-        //     t.0,
-        //     time.time + simulation_params.time_delta - t.0,
-        // );
     }
     // let t1 = SystemTime::now()
     //     .duration_since(UNIX_EPOCH)
@@ -381,7 +357,7 @@ fn collide<'a>(
     other_collidable: Collidable,
     other_generation: i32,
     t: f32,
-) -> Option<(Collidable<'a>, Collidable<'a>)> {
+) -> Option<(Option<Collidable<'a>>, Option<Collidable<'a>>)> {
     match collidable {
         Collidable::Ball(ball) => {
             if ball.collision_generation != generation {
@@ -392,9 +368,12 @@ fn collide<'a>(
                     if other_ball.collision_generation != other_generation {
                         return None;
                     }
-                    collide_ball_ball(&ball, &other_ball, t)
+                    Some(collide_ball_ball(&ball, &other_ball, t))
                 }
-                Collidable::Wall(wall) => collide_ball_wall(&ball, &wall, t),
+                Collidable::Wall(wall) => {
+                    // None
+                    Some(collide_ball_wall(&ball, &wall, t))
+                }
             }
         }
         Collidable::Wall(wall) => match other_collidable {
@@ -402,7 +381,9 @@ fn collide<'a>(
                 if ball.collision_generation != other_generation {
                     return None;
                 }
-                collide_ball_wall(&ball, &wall, t)
+                // None
+                let res = collide_ball_wall(&ball, &wall, t);
+                Some((res.1, res.0))
             }
             Collidable::Wall(_) => None,
         },
@@ -410,20 +391,40 @@ fn collide<'a>(
 }
 
 fn collide_ball_wall<'a>(
-    _ball: &Ball,
-    _wall: &Wall,
-    _t: f32,
-) -> Option<(Collidable<'a>, Collidable<'a>)> {
-    None
+    ball: &Ball,
+    wall: &Wall,
+    t: f32,
+) -> (Option<Collidable<'a>>, Option<Collidable<'a>>) {
+    // Wall does not move.
+    // println!(
+    let mut new_ball = ball.clone();
+    advance_single_ball(&mut new_ball, t);
+
+    let normal = wall.normal();
+    new_ball.collision_generation += 1;
+    let proj = ball.velocity.dot(&normal);
+    if proj < 0. {
+        new_ball.velocity -= proj * normal * 2.;
+    }
+    (Some(Collidable::Ball(MaybeOwned::from(new_ball))), None)
 }
 
 fn collide_ball_ball<'a>(
     ball: &Ball,
     other_ball: &Ball,
     t: f32,
-) -> Option<(Collidable<'a>, Collidable<'a>)> {
+) -> (Option<Collidable<'a>>, Option<Collidable<'a>>) {
     let mut ball0 = ball.clone();
     let mut ball1 = other_ball.clone();
+    if (t - ball0.initial_time < EPSILON) && (t - ball1.initial_time < EPSILON) {
+        // Collision event too close. Make the balls stop.
+        ball0.velocity *= 0.;
+        ball1.velocity *= 0.;
+        return (
+            Some(Collidable::Ball(MaybeOwned::from(ball0))),
+            Some(Collidable::Ball(MaybeOwned::from(ball1))),
+        );
+    }
     advance_single_ball(&mut ball0, t);
     advance_single_ball(&mut ball1, t);
     ball0.collision_generation += 1;
@@ -433,18 +434,22 @@ fn collide_ball_ball<'a>(
     let mass1 = ball1.radius * ball1.radius;
     let dx = ball0.position - ball1.position;
     let dv = ball0.velocity - ball1.velocity;
-    let d2 = (ball0.radius + ball1.radius) * (ball0.radius + ball1.radius);
-    let a = 2. / (mass0 + mass1) * dv.dot(&dx) / d2 * dx;
-    ball0.velocity -= mass1 * a;
-    if ball0.velocity.norm() > 100. {
-        ball0.velocity *= 100. / ball0.velocity.norm();
+    // Check if they are moving towards each other.
+    let proj = dv.dot(&dx);
+    if proj < 0. {
+        let d2 = (ball0.radius + ball1.radius) * (ball0.radius + ball1.radius);
+        let a = 2. / (mass0 + mass1) * dv.dot(&dx) / d2 * dx;
+        ball0.velocity -= mass1 * a;
+        if ball0.velocity.norm() > 100. {
+            ball0.velocity *= 100. / ball0.velocity.norm();
+        }
+        ball1.velocity += mass0 * a;
+        if ball1.velocity.norm() > 100. {
+            ball1.velocity *= 100. / ball1.velocity.norm();
+        }
     }
-    ball1.velocity += mass0 * a;
-    if ball1.velocity.norm() > 100. {
-        ball1.velocity *= 100. / ball1.velocity.norm();
-    }
-    Some((
-        Collidable::Ball(MaybeOwned::from(ball0)),
-        Collidable::Ball(MaybeOwned::from(ball1)),
-    ))
+    (
+        Some(Collidable::Ball(MaybeOwned::from(ball0))),
+        Some(Collidable::Ball(MaybeOwned::from(ball1))),
+    )
 }
