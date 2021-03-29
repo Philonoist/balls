@@ -71,14 +71,14 @@ fn init_walls(world: &mut World) {
 fn init_balls(world: &mut World) {
     // let mut rng = rand::thread_rng();
     let mut rng = Pcg64::new(0xcafef00dd15ea5e5, 0xa02bdbf7bb3c0a7ac28fa16a64abf96);
-    let n_balls = 1000;
+    let n_balls = 2000;
     let mut balls = std::vec::Vec::<(Ball,)>::new();
     balls.reserve(n_balls);
 
     while balls.len() < n_balls {
         let angle = rng.gen_range(0.0..(std::f32::consts::TAU));
-        let speed = rng.gen_range(3.0..10.0);
-        let radius = rng.gen_range(1.0..20.0);
+        let speed = rng.gen_range(3.0..50.0);
+        let radius = rng.gen_range(1.0..15.0);
         let ball = Ball {
             position: Vector2::new(
                 rng.gen_range(radius..(WIDTH as f32 - radius)),
@@ -104,17 +104,17 @@ fn init_balls(world: &mut World) {
         balls.push((ball,));
     }
     // balls.push((Ball {
-    //     position: Vector2::new(10., 100.),
-    //     velocity: Vector2::new(0., 0.),
+    //     position: Vector2::new(20., 100.),
+    //     velocity: Vector2::new(1000., 0.),
     //     radius: 10.,
     //     initial_time: 0.,
     //     collision_generation: 0,
     // },));
     // balls.push((Ball {
-    //     position: Vector2::new(200., 100.),
+    //     position: Vector2::new(281., 100.),
     //     velocity: Vector2::new(-100., 0.),
     //     radius: 100.,
-    //     initial_time: 0.,
+    //     initial_time: 0.1,
     //     collision_generation: 0,
     // },));
     world.extend(balls);
