@@ -6,96 +6,23 @@ pub mod collision;
 pub mod render;
 pub mod simulation;
 pub mod wall;
+pub mod world_gen;
 
-use ball::Ball;
 use collision::CollisionDetectionData;
 use legion::*;
-use nalgebra::Vector2;
-use rand::Rng;
-use rand_pcg::Pcg64;
+use render::{init_graphics, DisplayConfig};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use simulation::{SimulationParams, SimulationTime};
 use std::time::{SystemTime, UNIX_EPOCH};
-use wall::Wall;
+use world_gen::{init_world, GenerationConfig};
 
 const WIDTH: u32 = 1600;
 const HEIGHT: u32 = 800;
 
-fn init_walls(world: &mut World) {
-    let points = [
-        Vector2::new(0., 0.),
-        Vector2::new(WIDTH as f32, 0.),
-        Vector2::new(WIDTH as f32, HEIGHT as f32),
-        Vector2::new(0., HEIGHT as f32),
-    ];
-    let mut walls = std::vec::Vec::<(Wall,)>::new();
-    walls.reserve(4);
-    walls.extend(
-        [
-            (Wall {
-                p0: points[0],
-                p1: points[1],
-            },),
-            (Wall {
-                p0: points[1],
-                p1: points[2],
-            },),
-            (Wall {
-                p0: points[2],
-                p1: points[3],
-            },),
-            (Wall {
-                p0: points[3],
-                p1: points[0],
-            },),
-        ]
-        .iter(),
-    );
-    world.extend(walls);
-}
-
-fn init_balls(world: &mut World) {
-    // let mut rng = rand::thread_rng();
-    let mut rng = Pcg64::new(0xcafef00dd15ea5e5, 0xa02bdbf7bb3c0a7ac28fa16a64abf96);
-    let n_balls = 1500;
-    let mut balls = std::vec::Vec::<(Ball,)>::new();
-    balls.reserve(n_balls);
-
-    while balls.len() < n_balls {
-        let angle = rng.gen_range(0.0..(std::f32::consts::TAU));
-        let speed = rng.gen_range(3.0..50.0);
-        let radius = rng.gen_range(2.0..8.0);
-        let ball = Ball {
-            position: Vector2::new(
-                rng.gen_range(radius..(WIDTH as f32 - radius)),
-                rng.gen_range(radius..(HEIGHT as f32 - radius)),
-            ),
-            velocity: Vector2::new(speed * angle.cos(), speed * angle.sin()),
-            radius: radius,
-            initial_time: 0.,
-            collision_generation: 0,
-        };
-
-        // Check it doesn't overlap with an existing ball.
-        let mut found = false;
-        for (other_ball,) in &balls {
-            if (other_ball.position - ball.position).norm() <= other_ball.radius + ball.radius {
-                found = true;
-                break;
-            }
-        }
-        if found {
-            continue;
-        }
-        balls.push((ball,));
-    }
-    world.extend(balls);
-}
-
 pub fn main() {
     // Setup.
-    let graphics = crate::render::init_graphics(crate::render::DisplayConfig {
+    let graphics = init_graphics(DisplayConfig {
         width: WIDTH,
         height: HEIGHT,
     });
@@ -103,8 +30,13 @@ pub fn main() {
     let mut world = World::default();
 
     // Initialize world.
-    init_walls(&mut world);
-    init_balls(&mut world);
+    init_world(
+        &mut world,
+        GenerationConfig {
+            width: WIDTH,
+            height: HEIGHT,
+        },
+    );
     let mut resources = Resources::default();
     resources.insert(graphics);
     resources.insert(SimulationParams { time_delta: 0.1 });
