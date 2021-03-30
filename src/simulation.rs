@@ -22,7 +22,7 @@ pub fn advance_time(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64;
-    // println!("Frame time: {}", current_time - time.last_simulated);
+    println!("Frame time: {}", current_time - time.last_simulated);
     let ms_to_sleep = std::cmp::max(0, 16 - (current_time - time.last_simulated)) as u64;
     std::thread::sleep(Duration::from_millis(ms_to_sleep));
     time.last_simulated = current_time + (ms_to_sleep as i64);

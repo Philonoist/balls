@@ -64,11 +64,18 @@ fn get_cell_range_for_movement(collidable: &Collidable, time_delta: f32) -> (i32
             // Compute bounding box.
             let new_position = ball.position + ball.velocity * time_delta;
             (
-                ball.position.inf(&new_position).add_scalar(-ball.radius),
-                ball.position.sup(&new_position).add_scalar(ball.radius),
+                ball.position
+                    .inf(&new_position)
+                    .add_scalar(-ball.radius - EPSILON),
+                ball.position
+                    .sup(&new_position)
+                    .add_scalar(ball.radius + EPSILON),
             )
         }
-        Collidable::Wall(wall) => (wall.p0.inf(&wall.p1), wall.p0.sup(&wall.p1)),
+        Collidable::Wall(wall) => (
+            wall.p0.inf(&wall.p1).add_scalar(-EPSILON),
+            wall.p0.sup(&wall.p1.add_scalar(EPSILON)),
+        ),
     };
     return (
         std::cmp::max(0, (min_coords.x / CELL_SIZE).floor() as i32),
@@ -110,9 +117,10 @@ impl CollisionDetectionData {
             let collisions_sol = solve_collision(collidable, &candidate_collidable);
             if let Some((t0, t1)) = collisions_sol {
                 if segments_intersect((t0, t1), (time, time + time_delta)) {
+                    // println!("Adding {} on {}", t0.clamp(time, time + time_delta), time);
                     self.collisions_events.push(
                         (entity, candidate_entity),
-                        OrderedFloat(t0.clamp(time, time + time_delta)),
+                        OrderedFloat(-t0.clamp(time, time + time_delta)),
                     );
                 }
             }
@@ -174,7 +182,7 @@ fn solve_collision_ball_wall(ball: &Ball, wall: &Wall) -> Option<(f32, f32)> {
     // normal*(pb-pw+vt)=r.
     let a = normal.dot(&ball.velocity);
     let d = normal.dot(&(ball.position - wall.p0));
-    if d * a > -EPSILON {
+    if d * a >= 0. {
         // If relative position and relative speed are at the same direction, then the ball is moving away.
         // No collision here.
         return None;
@@ -301,7 +309,8 @@ pub fn collision_handle(
             .collisions_events
             .pop()
             .expect("Impossible");
-        let collision_time = ordered_t.0;
+        let collision_time = -ordered_t.0;
+        // println!("Handling {}", collision_time);
         // if collision_detection_data.collisions_events.len() > 200 {
         //     println!(
         //         "Queue pop t={}, len={}",
@@ -428,7 +437,6 @@ fn collide_ball_wall<'a>(
     t: f32,
 ) -> (Option<Collidable<'a>>, Option<Collidable<'a>>) {
     // Wall does not move.
-    // println!(
     let mut new_ball = ball.clone();
     advance_single_ball(&mut new_ball, t);
 

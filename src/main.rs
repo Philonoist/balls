@@ -19,8 +19,8 @@ use simulation::{SimulationParams, SimulationTime};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use wall::Wall;
 
-const WIDTH: u32 = 800;
-const HEIGHT: u32 = 600;
+const WIDTH: u32 = 1600;
+const HEIGHT: u32 = 800;
 
 fn init_canvas() -> (sdl2::Sdl, sdl2::render::Canvas<sdl2::video::Window>) {
     let sdl_context = sdl2::init().unwrap();
@@ -71,14 +71,14 @@ fn init_walls(world: &mut World) {
 fn init_balls(world: &mut World) {
     // let mut rng = rand::thread_rng();
     let mut rng = Pcg64::new(0xcafef00dd15ea5e5, 0xa02bdbf7bb3c0a7ac28fa16a64abf96);
-    let n_balls = 2000;
+    let n_balls = 1000;
     let mut balls = std::vec::Vec::<(Ball,)>::new();
     balls.reserve(n_balls);
 
     while balls.len() < n_balls {
         let angle = rng.gen_range(0.0..(std::f32::consts::TAU));
         let speed = rng.gen_range(3.0..50.0);
-        let radius = rng.gen_range(1.0..15.0);
+        let radius = rng.gen_range(1.0..30.0);
         let ball = Ball {
             position: Vector2::new(
                 rng.gen_range(radius..(WIDTH as f32 - radius)),
@@ -122,6 +122,13 @@ fn init_balls(world: &mut World) {
 
 #[system(for_each)]
 fn render_balls(ball: &Ball, #[resource] canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) {
+    if ball.position[0] < -1000.0
+        || ball.position[1] < -1000.0
+        || ball.position[0] > 10000.0
+        || ball.position[1] > 10000.0
+    {
+        println!("Bad ball {:?}", ball);
+    }
     canvas
         .filled_circle(
             ball.position[0] as i16,
@@ -170,6 +177,22 @@ pub fn main() {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running,
+                Event::KeyDown {
+                    keycode: Some(Keycode::KpPlus),
+                    ..
+                } => {
+                    if let Some(mut sim_params) = resources.get_mut::<SimulationParams>() {
+                        sim_params.time_delta *= 1.1;
+                    }
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::KpMinus),
+                    ..
+                } => {
+                    if let Some(mut sim_params) = resources.get_mut::<SimulationParams>() {
+                        sim_params.time_delta /= 1.1;
+                    }
+                }
                 _ => {}
             }
         }
