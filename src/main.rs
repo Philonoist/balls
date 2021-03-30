@@ -3,6 +3,7 @@ extern crate sdl2;
 pub mod advance;
 pub mod ball;
 pub mod collision;
+pub mod render;
 pub mod simulation;
 pub mod wall;
 
@@ -12,28 +13,14 @@ use legion::*;
 use nalgebra::Vector2;
 use rand::Rng;
 use rand_pcg::Pcg64;
+use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
-use sdl2::{event::Event, gfx::primitives::DrawRenderer};
 use simulation::{SimulationParams, SimulationTime};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use wall::Wall;
 
 const WIDTH: u32 = 1600;
 const HEIGHT: u32 = 800;
-
-fn init_canvas() -> (sdl2::Sdl, sdl2::render::Canvas<sdl2::video::Window>) {
-    let sdl_context = sdl2::init().unwrap();
-    let video_subsystem = sdl_context.video().unwrap();
-
-    let window = video_subsystem
-        .window("aaaa", WIDTH, HEIGHT)
-        .position_centered()
-        .build()
-        .unwrap();
-
-    (sdl_context, window.into_canvas().build().unwrap())
-}
 
 fn init_walls(world: &mut World) {
     let points = [
@@ -71,14 +58,14 @@ fn init_walls(world: &mut World) {
 fn init_balls(world: &mut World) {
     // let mut rng = rand::thread_rng();
     let mut rng = Pcg64::new(0xcafef00dd15ea5e5, 0xa02bdbf7bb3c0a7ac28fa16a64abf96);
-    let n_balls = 1000;
+    let n_balls = 1500;
     let mut balls = std::vec::Vec::<(Ball,)>::new();
     balls.reserve(n_balls);
 
     while balls.len() < n_balls {
         let angle = rng.gen_range(0.0..(std::f32::consts::TAU));
         let speed = rng.gen_range(3.0..50.0);
-        let radius = rng.gen_range(1.0..30.0);
+        let radius = rng.gen_range(2.0..8.0);
         let ball = Ball {
             position: Vector2::new(
                 rng.gen_range(radius..(WIDTH as f32 - radius)),
@@ -103,53 +90,23 @@ fn init_balls(world: &mut World) {
         }
         balls.push((ball,));
     }
-    // balls.push((Ball {
-    //     position: Vector2::new(20., 100.),
-    //     velocity: Vector2::new(1000., 0.),
-    //     radius: 10.,
-    //     initial_time: 0.,
-    //     collision_generation: 0,
-    // },));
-    // balls.push((Ball {
-    //     position: Vector2::new(281., 100.),
-    //     velocity: Vector2::new(-100., 0.),
-    //     radius: 100.,
-    //     initial_time: 0.1,
-    //     collision_generation: 0,
-    // },));
     world.extend(balls);
-}
-
-#[system(for_each)]
-fn render_balls(ball: &Ball, #[resource] canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) {
-    if ball.position[0] < -1000.0
-        || ball.position[1] < -1000.0
-        || ball.position[0] > 10000.0
-        || ball.position[1] > 10000.0
-    {
-        println!("Bad ball {:?}", ball);
-    }
-    canvas
-        .filled_circle(
-            ball.position[0] as i16,
-            ball.position[1] as i16,
-            ball.radius as i16,
-            Color::RGB(0, 0, 255),
-        )
-        .expect("ok");
 }
 
 pub fn main() {
     // Setup.
-    let (sdl_context, canvas) = init_canvas();
-    let mut event_pump = sdl_context.event_pump().unwrap();
+    let graphics = crate::render::init_graphics(crate::render::DisplayConfig {
+        width: WIDTH,
+        height: HEIGHT,
+    });
+    let mut event_pump = graphics.sdl_context.event_pump().unwrap();
     let mut world = World::default();
 
     // Initialize world.
     init_walls(&mut world);
     init_balls(&mut world);
     let mut resources = Resources::default();
-    resources.insert(canvas);
+    resources.insert(graphics);
     resources.insert(SimulationParams { time_delta: 0.1 });
     resources.insert(SimulationTime {
         time: 0.0,
@@ -166,7 +123,7 @@ pub fn main() {
         .add_system(crate::collision::collision_handle_system())
         .add_system(crate::advance::advance_balls_system())
         .add_system(crate::simulation::advance_time_system())
-        .add_thread_local(render_balls_system())
+        .add_thread_local(crate::render::render_balls_system())
         .build();
 
     'running: loop {
@@ -200,15 +157,5 @@ pub fn main() {
         // The rest of the game loop goes here...
         // run our schedule (you should do this each update)
         schedule.execute(&mut world, &mut resources);
-
-        {
-            let mut canvas_ref = resources
-                .get_mut::<sdl2::render::Canvas<sdl2::video::Window>>()
-                .expect("Canvas resource not found");
-            canvas_ref.present();
-            canvas_ref.set_draw_color(Color::RGB(0, 0, 0));
-            canvas_ref.clear();
-        }
-        // ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }
 }
