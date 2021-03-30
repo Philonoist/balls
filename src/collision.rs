@@ -1,9 +1,4 @@
-use crate::{
-    advance::advance_single_ball,
-    ball::Ball,
-    simulation::{SimulationParams, SimulationTime},
-    wall::Wall,
-};
+use crate::{advance::advance_single_ball, ball::Ball, simulation::SimulationData, wall::Wall};
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 use legion::IntoQuery;
@@ -58,10 +53,11 @@ pub struct CollisionDetectionData {
     // TODO: Set that remembers?
 }
 
-fn get_cell_range_for_movement(collidable: &Collidable, time_delta: f32) -> (i32, i32, i32, i32) {
+fn get_cell_range_for_movement(collidable: &Collidable, next_time: f32) -> (i32, i32, i32, i32) {
     let (min_coords, max_coords) = match collidable {
         Collidable::Ball(ball) => {
             // Compute bounding box.
+            let time_delta = next_time - ball.initial_time;
             let new_position = ball.position + ball.velocity * time_delta;
             (
                 ball.position
@@ -92,9 +88,9 @@ impl CollisionDetectionData {
         entity: GenerationalCollisionEntity,
         collidable: &Collidable,
         time: f32,
-        time_delta: f32,
+        next_time: f32,
     ) {
-        let (i0, i1, j0, j1) = get_cell_range_for_movement(collidable, time_delta);
+        let (i0, i1, j0, j1) = get_cell_range_for_movement(collidable, next_time);
         self.last_box.insert(entity, (i0, i1, j0, j1));
         // Find candidates using spatial hash mapping.
         let mut results = FnvHashSet::<GenerationalCollisionEntity>::default();
@@ -116,11 +112,11 @@ impl CollisionDetectionData {
             let candidate_collidable = fetch_collidable_copy(world, candidate_entity);
             let collisions_sol = solve_collision(collidable, &candidate_collidable);
             if let Some((t0, t1)) = collisions_sol {
-                if segments_intersect((t0, t1), (time, time + time_delta)) {
-                    // println!("Adding {} on {}", t0.clamp(time, time + time_delta), time);
+                if segments_intersect((t0, t1), (time, next_time)) {
+                    // println!("Adding {} on {}", t0.clamp(time, next_time), time);
                     self.collisions_events.push(
                         (entity, candidate_entity),
-                        OrderedFloat(-t0.clamp(time, time + time_delta)),
+                        OrderedFloat(-t0.clamp(time, next_time)),
                     );
                 }
             }
@@ -241,8 +237,7 @@ fn solve_collision_ball_ball(ball: &Ball, other_ball: &Ball) -> Option<(f32, f32
 #[read_component(Wall)]
 pub fn collision(
     world: &mut SubWorld,
-    #[resource] time: &SimulationTime,
-    #[resource] simulation_params: &SimulationParams,
+    #[resource] simulation_data: &SimulationData,
     #[resource] collision_detection_data: &mut CollisionDetectionData,
 ) {
     // Clear data.
@@ -263,8 +258,8 @@ pub fn collision(
                 generation: ball.collision_generation,
             },
             &Collidable::Ball(MaybeOwned::from(ball)),
-            time.time,
-            simulation_params.time_delta,
+            simulation_data.time,
+            simulation_data.next_time,
         );
     }
 
@@ -278,8 +273,8 @@ pub fn collision(
                 generation: 0,
             },
             &Collidable::Wall(MaybeOwned::from(wall)),
-            time.time,
-            simulation_params.time_delta,
+            simulation_data.time,
+            simulation_data.next_time,
         );
     }
 
@@ -295,8 +290,7 @@ pub fn collision(
 #[write_component(Wall)]
 pub fn collision_handle(
     world: &mut SubWorld,
-    #[resource] time: &SimulationTime,
-    #[resource] simulation_params: &SimulationParams,
+    #[resource] simulation_data: &SimulationData,
     #[resource] collision_detection_data: &mut CollisionDetectionData,
 ) {
     // let t0 = SystemTime::now()
@@ -343,7 +337,7 @@ pub fn collision_handle(
                     collision_entity0.next(),
                     &c,
                     collision_time,
-                    time.time + simulation_params.time_delta - collision_time,
+                    simulation_data.next_time,
                 );
             }
             if let Some(c) = new_collidable1 {
@@ -354,7 +348,7 @@ pub fn collision_handle(
                     collision_entity1.next(),
                     &c,
                     collision_time,
-                    time.time + simulation_params.time_delta - collision_time,
+                    simulation_data.next_time,
                 );
             }
         }

@@ -13,7 +13,7 @@ use legion::*;
 use render::{init_graphics, DisplayConfig};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use simulation::{SimulationParams, SimulationTime};
+use simulation::{adjust_simulation_speed, init_simulation, SimulationConfig};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_gen::{init_world, GenerationConfig};
 
@@ -39,14 +39,7 @@ pub fn main() {
     );
     let mut resources = Resources::default();
     resources.insert(graphics);
-    resources.insert(SimulationParams { time_delta: 0.1 });
-    resources.insert(SimulationTime {
-        time: 0.0,
-        last_simulated: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64,
-    });
+    init_simulation(&mut resources, SimulationConfig { time_delta: 0.1 });
     resources.insert(CollisionDetectionData::default());
 
     // Initialize scheduler.
@@ -70,17 +63,13 @@ pub fn main() {
                     keycode: Some(Keycode::KpPlus),
                     ..
                 } => {
-                    if let Some(mut sim_params) = resources.get_mut::<SimulationParams>() {
-                        sim_params.time_delta *= 1.1;
-                    }
+                    adjust_simulation_speed(&mut resources, 1.1);
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::KpMinus),
                     ..
                 } => {
-                    if let Some(mut sim_params) = resources.get_mut::<SimulationParams>() {
-                        sim_params.time_delta /= 1.1;
-                    }
+                    adjust_simulation_speed(&mut resources, 1. / 1.1);
                 }
                 _ => {}
             }
