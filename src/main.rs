@@ -21,6 +21,10 @@ const WIDTH: u32 = 1600;
 const HEIGHT: u32 = 800;
 
 pub fn main() {
+    // Logging.
+    log4rs::init_file("config/log4rs.yaml", Default::default())
+        .expect("Logging configuration file 'log4rs.yaml' not found.");
+
     // Setup.
     let graphics = init_graphics(DisplayConfig {
         width: WIDTH,

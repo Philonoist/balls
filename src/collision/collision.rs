@@ -4,6 +4,7 @@ use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 use legion::IntoQuery;
 use legion::{system, world::SubWorld, Entity, EntityStore};
+use log::debug;
 use maybe_owned::MaybeOwned;
 use nalgebra::Vector2;
 use ordered_float::OrderedFloat;
@@ -109,7 +110,6 @@ impl CollisionDetectionData {
             let collisions_sol = solve_collision(collidable, &candidate_collidable);
             if let Some((t0, t1)) = collisions_sol {
                 if segments_intersect((t0, t1), (time, next_time)) {
-                    // println!("Adding {} on {}", t0.clamp(time, next_time), time);
                     self.collisions_events.push(
                         (entity, candidate_entity),
                         OrderedFloat(-t0.clamp(time, next_time)),
@@ -165,10 +165,6 @@ pub fn collision(
     #[resource] collision_detection_data: &mut CollisionDetectionData,
 ) {
     // Clear data.
-    // let t0 = SystemTime::now()
-    //     .duration_since(UNIX_EPOCH)
-    //     .unwrap()
-    //     .as_millis();
     collision_detection_data.spatial_buckets.clear();
     collision_detection_data.collisions_events.clear();
 
@@ -201,12 +197,6 @@ pub fn collision(
             simulation_data.next_time,
         );
     }
-
-    // let t1 = SystemTime::now()
-    //     .duration_since(UNIX_EPOCH)
-    //     .unwrap()
-    //     .as_millis();
-    // println!("Collision time {}", t1 - t0);
 }
 
 #[system]
@@ -217,10 +207,6 @@ pub fn collision_handle(
     #[resource] simulation_data: &SimulationData,
     #[resource] collision_detection_data: &mut CollisionDetectionData,
 ) {
-    // let t0 = SystemTime::now()
-    //     .duration_since(UNIX_EPOCH)
-    //     .unwrap()
-    //     .as_millis();
     // Clear data.
     while !collision_detection_data.collisions_events.is_empty() {
         let ((collision_entity0, collision_entity1), ordered_t) = collision_detection_data
@@ -228,18 +214,10 @@ pub fn collision_handle(
             .pop()
             .expect("Impossible");
         let collision_time = -ordered_t.0;
-        // println!("Handling {}", collision_time);
-        // if collision_detection_data.collisions_events.len() > 200 {
-        //     println!(
-        //         "Queue pop t={}, len={}",
-        //         collision_time,
-        //         collision_detection_data.collisions_events.len(),
-        //     );
-        // }
-        // println!(
-        //     "Collision {:?} {:?} at {}",
-        //     collision_entity0, collision_entity1, collision_time
-        // );
+        debug!(
+            "Collision {:?} {:?} at {}",
+            collision_entity0, collision_entity1, collision_time
+        );
 
         // TODO: Consider separating collision_generation to its own (optional?) component.
         let collidable0 = fetch_collidable_copy(world, collision_entity0);
@@ -277,21 +255,9 @@ pub fn collision_handle(
             }
         }
     }
-    // let t1 = SystemTime::now()
-    //     .duration_since(UNIX_EPOCH)
-    //     .unwrap()
-    //     .as_millis();
-    // println!("Collision handle took: {}", t1 - t0);
 }
 
 fn write_collidable(world: &mut SubWorld, entity: Entity, collidable: &Collidable) -> () {
-    // static mut it: i64 = 0;
-    // unsafe {
-    //     it += 1;
-    //     if it > 1000000 {
-    //         println!("Writing {:?} at {:?}", collidable, entity);
-    //     }
-    // }
     match collidable {
         Collidable::Ball(ball) => {
             *(world

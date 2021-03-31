@@ -15,12 +15,13 @@ branch="master"
 
 [dependencies.nalgebra]
 [dependencies.rand]
-[dependencies.priority-queue]
-version = ">=1.1.1"
-[dependencies.ordered-float]
-version = ">=2.1.1"
-[dependencies.rayon]
-version = ">=1.5.0"
 [dependencies.fnv]
 [dependencies.rand_pcg]
 [dependencies.maybe-owned]
+
+[dependencies]
+priority-queue = ">=1.1.1"
+ordered-float = ">=2.1.1"
+rayon = ">=1.5.0"
+log = ">=0.4.14"
+log4rs = ">=1.0.0"

@@ -1,4 +1,5 @@
 use legion::*;
+use log::info;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -36,7 +37,7 @@ pub fn advance_time(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64;
-    println!(
+    info!(
         "Frame time: {}",
         current_time - simulation_data.last_simulated
     );

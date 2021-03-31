@@ -31,9 +31,6 @@ fn solve_collision_ball_wall(ball: &Ball, wall: &Wall) -> Option<(f32, f32)> {
         return None;
     }
 
-    // if a.abs() < EPSILON {
-    //     return None;
-    // }
     let b0 = d - ball.radius;
     let b1 = d;
     return Some((-b0 / a + ball.initial_time, -b1 / a + ball.initial_time));
@@ -60,10 +57,6 @@ fn solve_collision_ball_ball(ball: &Ball, other_ball: &Ball) -> Option<(f32, f32
     let b = dv.dot(&affine) * 2.;
     let c =
         affine.dot(&affine) - (ball.radius + other_ball.radius) * (ball.radius + other_ball.radius);
-
-    // if a <= EPSILON {
-    //     return None;
-    // }
 
     let disc = b * b - 4. * a * c;
     if disc < -EPSILON {

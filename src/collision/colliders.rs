@@ -23,10 +23,7 @@ pub fn collide<'a>(
                     }
                     Some(collide_ball_ball(&ball, &other_ball, t))
                 }
-                Collidable::Wall(wall) => {
-                    // None
-                    Some(collide_ball_wall(&ball, &wall, t))
-                }
+                Collidable::Wall(wall) => Some(collide_ball_wall(&ball, &wall, t)),
             }
         }
         Collidable::Wall(wall) => match other_collidable {
@@ -34,7 +31,6 @@ pub fn collide<'a>(
                 if ball.collision_generation != other_generation {
                     return None;
                 }
-                // None
                 let res = collide_ball_wall(&ball, &wall, t);
                 Some((res.1, res.0))
             }
@@ -68,15 +64,6 @@ fn collide_ball_ball<'a>(
 ) -> (Option<Collidable<'a>>, Option<Collidable<'a>>) {
     let mut ball0 = ball.clone();
     let mut ball1 = other_ball.clone();
-    // if (t - ball0.initial_time < EPSILON) && (t - ball1.initial_time < EPSILON) {
-    //     // Collision event too close. Make the balls stop.
-    //     ball0.velocity *= 0.;
-    //     ball1.velocity *= 0.;
-    //     return (
-    //         Some(Collidable::Ball(MaybeOwned::from(ball0))),
-    //         Some(Collidable::Ball(MaybeOwned::from(ball1))),
-    //     );
-    // }
     advance_single_ball(&mut ball0, t);
     advance_single_ball(&mut ball1, t);
     ball0.collision_generation += 1;
@@ -88,18 +75,10 @@ fn collide_ball_ball<'a>(
     let dv = ball0.velocity - ball1.velocity;
     // Check if they are moving towards each other.
     let proj = dv.dot(&dx);
-    // static mut it: i64 = 0;
-    // unsafe {
-    //     it += 1;
-    //     if it > 1000000 {
-    //         println!("proj: {}, v0: {}", proj, ball0.velocity);
-    //     }
-    // }
     if proj < 0. {
         let d2 = dx.dot(&dx);
         let a = 2. / (mass0 + mass1) * proj / d2 * dx;
         ball0.velocity -= mass1 * a;
-        // println!("v1: {}", ball0.velocity);
         if ball0.velocity.norm() > 1000. {
             ball0.velocity *= 1000. / ball0.velocity.norm();
         }
