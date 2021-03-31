@@ -1,4 +1,4 @@
-use winit::event::{Event, WindowEvent};
+use winit::event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 pub mod advance;
@@ -56,41 +56,52 @@ pub fn main() {
         Event::WindowEvent {
             event: WindowEvent::CloseRequested,
             ..
+        }
+        | Event::WindowEvent {
+            event:
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            virtual_keycode: Some(VirtualKeyCode::Escape),
+                            ..
+                        },
+                    ..
+                },
+            ..
         } => {
             *control_flow = ControlFlow::Exit;
+        }
+        Event::WindowEvent {
+            event:
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            virtual_keycode: Some(VirtualKeyCode::NumpadAdd),
+                            ..
+                        },
+                    ..
+                },
+            ..
+        } => {
+            adjust_simulation_speed(&mut resources, 1.1);
+        }
+        Event::WindowEvent {
+            event:
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            virtual_keycode: Some(VirtualKeyCode::NumpadSubtract),
+                            ..
+                        },
+                    ..
+                },
+            ..
+        } => {
+            adjust_simulation_speed(&mut resources, 1. / 1.1);
         }
         Event::RedrawEventsCleared => {
             schedule.execute(&mut world, &mut resources);
         }
         _ => (),
     });
-
-    // 'running: loop {
-    //     for event in event_pump.poll_iter() {
-    //         match event {
-    //             Event::Quit { .. }
-    //             | Event::KeyDown {
-    //                 keycode: Some(Keycode::Escape),
-    //                 ..
-    //             } => break 'running,
-    //             Event::KeyDown {
-    //                 keycode: Some(Keycode::KpPlus),
-    //                 ..
-    //             } => {
-    //                 adjust_simulation_speed(&mut resources, 1.1);
-    //             }
-    //             Event::KeyDown {
-    //                 keycode: Some(Keycode::KpMinus),
-    //                 ..
-    //             } => {
-    //                 adjust_simulation_speed(&mut resources, 1. / 1.1);
-    //             }
-    //             _ => {}
-    //         }
-    //     }
-
-    //     // The rest of the game loop goes here...
-    //     // run our schedule (you should do this each update)
-    //     schedule.execute(&mut world, &mut resources);
-    // }
 }
