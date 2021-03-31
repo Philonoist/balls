@@ -1,5 +1,6 @@
-extern crate sdl2;
-
+use winit::event::{Event, WindowEvent};
+use winit::event_loop::{ControlFlow, EventLoop};
+use winit::window::{Window, WindowBuilder};
 pub mod advance;
 pub mod ball;
 pub mod collision;
@@ -11,8 +12,6 @@ pub mod world_gen;
 use collision::CollisionDetectionData;
 use legion::*;
 use render::{init_graphics, DisplayConfig};
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
 use simulation::{adjust_simulation_speed, init_simulation, SimulationConfig};
 use world_gen::{init_world, GenerationConfig};
 
@@ -25,11 +24,10 @@ pub fn main() {
         .expect("Logging configuration file 'log4rs.yaml' not found.");
 
     // Setup.
-    let graphics = init_graphics(DisplayConfig {
+    let (graphics, event_loop) = init_graphics(DisplayConfig {
         width: WIDTH,
         height: HEIGHT,
     });
-    let mut event_pump = graphics.sdl_context.event_pump().unwrap();
     let mut world = World::default();
 
     // Initialize world.
@@ -54,32 +52,45 @@ pub fn main() {
         .add_thread_local(crate::render::render_balls_system())
         .build();
 
-    'running: loop {
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => break 'running,
-                Event::KeyDown {
-                    keycode: Some(Keycode::KpPlus),
-                    ..
-                } => {
-                    adjust_simulation_speed(&mut resources, 1.1);
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::KpMinus),
-                    ..
-                } => {
-                    adjust_simulation_speed(&mut resources, 1. / 1.1);
-                }
-                _ => {}
-            }
+    event_loop.run(move |event, _, control_flow| match event {
+        Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } => {
+            *control_flow = ControlFlow::Exit;
         }
+        Event::RedrawEventsCleared => {
+            schedule.execute(&mut world, &mut resources);
+        }
+        _ => (),
+    });
 
-        // The rest of the game loop goes here...
-        // run our schedule (you should do this each update)
-        schedule.execute(&mut world, &mut resources);
-    }
+    // 'running: loop {
+    //     for event in event_pump.poll_iter() {
+    //         match event {
+    //             Event::Quit { .. }
+    //             | Event::KeyDown {
+    //                 keycode: Some(Keycode::Escape),
+    //                 ..
+    //             } => break 'running,
+    //             Event::KeyDown {
+    //                 keycode: Some(Keycode::KpPlus),
+    //                 ..
+    //             } => {
+    //                 adjust_simulation_speed(&mut resources, 1.1);
+    //             }
+    //             Event::KeyDown {
+    //                 keycode: Some(Keycode::KpMinus),
+    //                 ..
+    //             } => {
+    //                 adjust_simulation_speed(&mut resources, 1. / 1.1);
+    //             }
+    //             _ => {}
+    //         }
+    //     }
+
+    //     // The rest of the game loop goes here...
+    //     // run our schedule (you should do this each update)
+    //     schedule.execute(&mut world, &mut resources);
+    // }
 }
