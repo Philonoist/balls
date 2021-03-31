@@ -1,41 +1,37 @@
-use super::{collidable::EPSILON, colliders::collide, solvers::solve_collision};
-use crate::{advance::advance_single_ball, ball::Ball, simulation::SimulationData, wall::Wall};
+use super::{
+    collidable::{fetch_collidable_copy, write_collidable, CollidableType},
+    colliders::collide,
+    solvers::{get_movement_bounding_box, solve_collision},
+};
+use crate::{ball::Ball, simulation::SimulationData, wall::Wall};
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
 use legion::IntoQuery;
-use legion::{system, world::SubWorld, Entity, EntityStore};
+use legion::{system, world::SubWorld, Entity};
 use log::debug;
 use maybe_owned::MaybeOwned;
-use nalgebra::Vector2;
 use ordered_float::OrderedFloat;
 use priority_queue::PriorityQueue;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::collidable::Collidable;
 const CELL_SIZE: f32 = 20.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash, Eq)]
-enum CollisionType {
-    Ball,
-    Wall,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Hash, Eq)]
 struct GenerationalCollisionEntity {
     entity: Entity,
-    collision_type: CollisionType,
+    collidable_type: CollidableType,
     generation: i32,
 }
 
 // This is ugly.
 impl GenerationalCollisionEntity {
     fn next(self) -> GenerationalCollisionEntity {
-        match self.collision_type {
-            CollisionType::Ball => GenerationalCollisionEntity {
+        match self.collidable_type {
+            CollidableType::Ball => GenerationalCollisionEntity {
                 generation: self.generation + 1,
                 ..self
             },
-            CollisionType::Wall => self,
+            CollidableType::Wall => self,
         }
     }
 }
@@ -51,25 +47,7 @@ pub struct CollisionDetectionData {
 }
 
 fn get_cell_range_for_movement(collidable: &Collidable, next_time: f32) -> (i32, i32, i32, i32) {
-    let (min_coords, max_coords) = match collidable {
-        Collidable::Ball(ball) => {
-            // Compute bounding box.
-            let time_delta = next_time - ball.initial_time;
-            let new_position = ball.position + ball.velocity * time_delta;
-            (
-                ball.position
-                    .inf(&new_position)
-                    .add_scalar(-ball.radius - EPSILON),
-                ball.position
-                    .sup(&new_position)
-                    .add_scalar(ball.radius + EPSILON),
-            )
-        }
-        Collidable::Wall(wall) => (
-            wall.p0.inf(&wall.p1).add_scalar(-EPSILON),
-            wall.p0.sup(&wall.p1.add_scalar(EPSILON)),
-        ),
-    };
+    let (min_coords, max_coords) = get_movement_bounding_box(collidable, next_time);
     return (
         std::cmp::max(0, (min_coords.x / CELL_SIZE).floor() as i32),
         std::cmp::min(100, (max_coords.x / CELL_SIZE).ceil() as i32) + 1,
@@ -106,7 +84,11 @@ impl CollisionDetectionData {
 
         // Solve collisions.
         for candidate_entity in results {
-            let candidate_collidable = fetch_collidable_copy(world, candidate_entity);
+            let candidate_collidable = fetch_collidable_copy(
+                world,
+                candidate_entity.collidable_type,
+                candidate_entity.entity,
+            );
             let collisions_sol = solve_collision(collidable, &candidate_collidable);
             if let Some((t0, t1)) = collisions_sol {
                 if segments_intersect((t0, t1), (time, next_time)) {
@@ -136,25 +118,6 @@ fn segments_intersect((x0, x1): (f32, f32), (y0, y1): (f32, f32)) -> bool {
     return x1 >= y0 && y1 >= x0;
 }
 
-fn fetch_collidable_copy<'a, 'b>(
-    world: &'b SubWorld,
-    candidate_entity: GenerationalCollisionEntity,
-) -> Collidable<'a> {
-    return match candidate_entity.collision_type {
-        CollisionType::Ball => {
-            let entry = world.entry_ref(candidate_entity.entity).unwrap();
-            // Try to remove this clone.
-            let ball = entry.get_component::<Ball>().unwrap().clone();
-            Collidable::Ball(MaybeOwned::from(ball))
-        }
-        CollisionType::Wall => {
-            let entry = world.entry_ref(candidate_entity.entity).unwrap();
-            let wall = entry.get_component::<Wall>().unwrap().clone();
-            Collidable::Wall(MaybeOwned::from(wall))
-        }
-    };
-}
-
 #[system]
 #[read_component(Entity)]
 #[read_component(Ball)]
@@ -173,7 +136,7 @@ pub fn collision(
         collision_detection_data.add(
             world,
             GenerationalCollisionEntity {
-                collision_type: CollisionType::Ball,
+                collidable_type: CollidableType::Ball,
                 entity: entity.clone(),
                 generation: ball.collision_generation,
             },
@@ -188,7 +151,7 @@ pub fn collision(
         collision_detection_data.add(
             world,
             GenerationalCollisionEntity {
-                collision_type: CollisionType::Wall,
+                collidable_type: CollidableType::Wall,
                 entity: entity.clone(),
                 generation: 0,
             },
@@ -220,8 +183,16 @@ pub fn collision_handle(
         );
 
         // TODO: Consider separating collision_generation to its own (optional?) component.
-        let collidable0 = fetch_collidable_copy(world, collision_entity0);
-        let collidable1 = fetch_collidable_copy(world, collision_entity1);
+        let collidable0 = fetch_collidable_copy(
+            world,
+            collision_entity0.collidable_type,
+            collision_entity0.entity,
+        );
+        let collidable1 = fetch_collidable_copy(
+            world,
+            collision_entity1.collidable_type,
+            collision_entity1.entity,
+        );
 
         let result = collide(
             collidable0,
@@ -253,25 +224,6 @@ pub fn collision_handle(
                     simulation_data.next_time,
                 );
             }
-        }
-    }
-}
-
-fn write_collidable(world: &mut SubWorld, entity: Entity, collidable: &Collidable) -> () {
-    match collidable {
-        Collidable::Ball(ball) => {
-            *(world
-                .entry_mut(entity)
-                .unwrap()
-                .get_component_mut::<Ball>()
-                .unwrap()) = **ball;
-        }
-        Collidable::Wall(wall) => {
-            *(world
-                .entry_mut(entity)
-                .unwrap()
-                .get_component_mut::<Wall>()
-                .unwrap()) = **wall;
         }
     }
 }

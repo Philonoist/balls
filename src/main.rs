@@ -14,7 +14,6 @@ use render::{init_graphics, DisplayConfig};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use simulation::{adjust_simulation_speed, init_simulation, SimulationConfig};
-use std::time::{SystemTime, UNIX_EPOCH};
 use world_gen::{init_world, GenerationConfig};
 
 const WIDTH: u32 = 1600;

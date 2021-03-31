@@ -1,7 +1,34 @@
+use nalgebra::Vector2;
+
 use crate::{ball::Ball, wall::Wall};
 
 use super::collidable::Collidable;
 use super::collidable::EPSILON;
+
+pub fn get_movement_bounding_box(
+    collidable: &Collidable,
+    next_time: f32,
+) -> (Vector2<f32>, Vector2<f32>) {
+    match collidable {
+        Collidable::Ball(ball) => {
+            // Compute bounding box.
+            let time_delta = next_time - ball.initial_time;
+            let new_position = ball.position + ball.velocity * time_delta;
+            (
+                ball.position
+                    .inf(&new_position)
+                    .add_scalar(-ball.radius - EPSILON),
+                ball.position
+                    .sup(&new_position)
+                    .add_scalar(ball.radius + EPSILON),
+            )
+        }
+        Collidable::Wall(wall) => (
+            wall.p0.inf(&wall.p1).add_scalar(-EPSILON),
+            wall.p0.sup(&wall.p1.add_scalar(EPSILON)),
+        ),
+    }
+}
 
 pub fn solve_collision(
     collidable: &Collidable,
