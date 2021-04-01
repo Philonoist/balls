@@ -1,4 +1,5 @@
-use crate::ball::Ball;
+use crate::{ball::Ball, simulation::SimulationData};
+use legion::IntoQuery;
 use legion::{system, world::SubWorld};
 use std::{any::Any, sync::Arc};
 use vulkano::buffer::BufferUsage;
@@ -29,17 +30,18 @@ use winit::{
     event_loop::EventLoop,
     window::{Window, WindowBuilder},
 };
-
 pub struct DisplayConfig {
     pub width: u32,
     pub height: u32,
+    pub max_vertices: i32,
 }
 
 #[derive(Default, Copy, Clone)]
 pub struct Vertex {
     position: [f32; 2],
+    coords: [f32; 2],
 }
-vulkano::impl_vertex!(Vertex, position);
+vulkano::impl_vertex!(Vertex, position, coords);
 
 pub struct Graphics {
     config: DisplayConfig,
@@ -50,8 +52,9 @@ pub struct Graphics {
     dynamic_state: DynamicState,
     framebuffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
     pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
-    previous_frame_end: Option<Box<dyn GpuFuture>>,
-    vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
+    previous_frame_ends: Vec<Option<Box<dyn GpuFuture>>>,
+    vertex_buffers: Vec<Arc<CpuAccessibleBuffer<[Vertex]>>>,
+    index_buffers: Vec<Arc<CpuAccessibleBuffer<[u16]>>>,
 }
 
 fn window_size_dependent_setup(
@@ -183,30 +186,34 @@ pub fn init_graphics(display_config: DisplayConfig) -> (Graphics, EventLoop<()>)
     let mut framebuffers =
         window_size_dependent_setup(&images, render_pass.clone(), &mut dynamic_state);
 
-    let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
+    let mut previous_frame_ends = images.iter().map(|image| None).collect::<Vec<_>>();
 
     // We now create a buffer that will store the shape of our triangle.
-    let vertex_buffer = {
-        CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::all(),
-            false,
-            [
-                Vertex {
-                    position: [-0.5, -0.25],
-                },
-                Vertex {
-                    position: [0.0, 0.5],
-                },
-                Vertex {
-                    position: [0.25, -0.1],
-                },
-            ]
-            .iter()
-            .cloned(),
-        )
-        .unwrap()
-    };
+    let vertex_buffers = images
+        .iter()
+        .map(|image| {
+            CpuAccessibleBuffer::from_iter(
+                device.clone(),
+                BufferUsage::all(),
+                false,
+                (0..display_config.max_vertices).map(|i| Vertex::default()),
+            )
+            .expect("failed to create buffer")
+        })
+        .collect::<Vec<_>>();
+
+    let index_buffers = images
+        .iter()
+        .map(|image| {
+            CpuAccessibleBuffer::from_iter(
+                device.clone(),
+                BufferUsage::all(),
+                false,
+                (0..display_config.max_vertices).map(|i| 0u16),
+            )
+            .expect("failed to create buffer")
+        })
+        .collect::<Vec<_>>();
 
     (
         Graphics {
@@ -218,8 +225,9 @@ pub fn init_graphics(display_config: DisplayConfig) -> (Graphics, EventLoop<()>)
             dynamic_state: dynamic_state,
             framebuffers: framebuffers,
             pipeline: pipeline,
-            previous_frame_end: previous_frame_end,
-            vertex_buffer: vertex_buffer,
+            previous_frame_ends: previous_frame_ends,
+            vertex_buffers: vertex_buffers,
+            index_buffers: index_buffers,
         },
         event_loop,
     )
@@ -231,8 +239,11 @@ mod vs {
         src: "
             #version 450
             layout(location = 0) in vec2 position;
+            layout(location = 1) in vec2 coords;
+            layout(location = 0) out vec2 outCoords;
             void main() {
                 gl_Position = vec4(position, 0.0, 1.0);
+                outCoords = coords;
             }
         "
     }
@@ -243,9 +254,15 @@ mod fs {
         ty: "fragment",
         src: "
             #version 450
+            layout(location = 0) in vec2 coords;
             layout(location = 0) out vec4 f_color;
             void main() {
-                f_color = vec4(1.0, 0.0, 0.0, 1.0);
+                float L = 2.0;
+                float d = sqrt(1-coords.y*coords.y);
+                float t0 = max(0, coords.x-d);
+                float t1 = min(L, coords.x+d);
+                // f_color = vec4(1.0, 0.0, 0.0, (t1-t0)/L);
+                f_color = vec4((t1-t0)/L, 0.0, 0.0, 1.0);
             }
         "
     }
@@ -258,7 +275,11 @@ fn create_shaders(device: &Arc<Device>) -> (vs::Shader, fs::Shader) {
 
 #[system]
 #[read_component(Ball)]
-pub fn render_balls(world: &mut SubWorld, #[resource] graphics: &mut Graphics) {
+pub fn render_balls(
+    world: &mut SubWorld,
+    #[resource] graphics: &mut Graphics,
+    #[resource] simulation_data: &mut SimulationData,
+) {
     let (image_num, suboptimal, acquire_future) =
         match swapchain::acquire_next_image(graphics.swapchain.clone(), None) {
             Ok(r) => r,
@@ -275,6 +296,50 @@ pub fn render_balls(world: &mut SubWorld, #[resource] graphics: &mut Graphics) {
     )
     .unwrap();
 
+    println!(
+        "image_num: {}, f: {}",
+        image_num,
+        graphics.previous_frame_ends[image_num].is_some()
+    );
+    // Wait for last render of that image to end.
+    graphics.previous_frame_ends[image_num].take().map(|res| {
+        res.then_signal_fence().wait(None).unwrap();
+    });
+    let vertex_buffer = &mut graphics.vertex_buffers[image_num];
+    let index_buffer = &mut graphics.index_buffers[image_num];
+
+    // Fill buffers.
+    {
+        let mut vertex_buffer_data = vertex_buffer.write().unwrap();
+        let mut index_buffer_data = index_buffer.write().unwrap();
+        for (i, ball) in <&Ball>::query().iter(world).enumerate() {
+            let index_index = 6 * i;
+            let mut vertex_index = 4 * i;
+            index_buffer_data[index_index + 0] = (vertex_index) as u16;
+            index_buffer_data[index_index + 1] = (vertex_index + 1) as u16;
+            index_buffer_data[index_index + 2] = (vertex_index + 2) as u16;
+            index_buffer_data[index_index + 3] = (vertex_index + 2) as u16;
+            index_buffer_data[index_index + 4] = (vertex_index + 1) as u16;
+            index_buffer_data[index_index + 5] = (vertex_index + 3) as u16;
+
+            for vo in [-1.0f32, 1.0].iter() {
+                for ho in [-1.0f32, 1.0].iter() {
+                    vertex_buffer_data[vertex_index] = Vertex {
+                        position: [
+                            -1.0 + 2.0 * (ball.position[0] + ho * ball.radius)
+                                / graphics.config.width as f32,
+                            -1.0 + 2.0 * (ball.position[1] + vo * ball.radius)
+                                / graphics.config.height as f32,
+                        ],
+                        coords: [*ho, *vo],
+                    };
+                    vertex_index += 1;
+                }
+            }
+        }
+    }
+
+    // Start rendering.
     builder
         .begin_render_pass(
             graphics.framebuffers[image_num].clone(),
@@ -282,10 +347,11 @@ pub fn render_balls(world: &mut SubWorld, #[resource] graphics: &mut Graphics) {
             clear_values,
         )
         .unwrap()
-        .draw(
+        .draw_indexed(
             graphics.pipeline.clone(),
             &graphics.dynamic_state,
-            vec![graphics.vertex_buffer.clone()],
+            vec![vertex_buffer.clone()],
+            index_buffer.clone(),
             (),
             (),
             vec![],
@@ -297,10 +363,7 @@ pub fn render_balls(world: &mut SubWorld, #[resource] graphics: &mut Graphics) {
     // Finish building the command buffer by calling `build`.
     let command_buffer = builder.build().unwrap();
 
-    let future = graphics
-        .previous_frame_end
-        .take()
-        .unwrap()
+    let future = sync::now(graphics.device.clone())
         .join(acquire_future)
         .then_execute(graphics.queue.clone(), command_buffer)
         .unwrap()
@@ -319,15 +382,21 @@ pub fn render_balls(world: &mut SubWorld, #[resource] graphics: &mut Graphics) {
 
     match future {
         Ok(future) => {
-            graphics.previous_frame_end = Some(future.boxed());
+            // future.wait(None);
+            // {
+            //     (*graphics.vertex_buffer).write().map(|mut wl| {
+            //         wl[0].position[0] = simulation_data.time / 10.;
+            //     });
+            // }
+            graphics.previous_frame_ends[image_num] = Some(future.boxed());
         }
         Err(FlushError::OutOfDate) => {
             // recreate_swapchain = true;
-            graphics.previous_frame_end = Some(sync::now(graphics.device.clone()).boxed());
+            graphics.previous_frame_ends[image_num] = None;
         }
         Err(e) => {
             println!("Failed to flush future: {:?}", e);
-            graphics.previous_frame_end = Some(sync::now(graphics.device.clone()).boxed());
+            graphics.previous_frame_ends[image_num] = None;
         }
     }
 }

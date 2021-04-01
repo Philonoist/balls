@@ -27,6 +27,7 @@ pub fn main() {
     let (graphics, event_loop) = init_graphics(DisplayConfig {
         width: WIDTH,
         height: HEIGHT,
+        max_vertices: 60000,
     });
     let mut world = World::default();
 
