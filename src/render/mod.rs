@@ -27,6 +27,7 @@ use vulkano::{framebuffer::FramebufferAbstract, instance::PhysicalDevice};
 use vulkano::{image::SwapchainImage, instance::Instance};
 use vulkano_win::VkSurfaceBuild;
 use winit::{
+    dpi::LogicalSize,
     event_loop::EventLoop,
     window::{Window, WindowBuilder},
 };
@@ -93,6 +94,10 @@ pub fn init_graphics(display_config: DisplayConfig) -> (Graphics, EventLoop<()>)
     };
     let event_loop = EventLoop::new();
     let surface = WindowBuilder::new()
+        .with_inner_size(LogicalSize::new(
+            display_config.width,
+            display_config.height,
+        ))
         .build_vk_surface(&event_loop, instance.clone())
         .unwrap();
 
@@ -257,7 +262,7 @@ mod fs {
             layout(location = 0) in vec2 coords;
             layout(location = 0) out vec4 f_color;
             void main() {
-                float L = 2.0;
+                float L = 0.01;
                 float d = sqrt(1-coords.y*coords.y);
                 float t0 = max(0, coords.x-d);
                 float t1 = min(L, coords.x+d);

@@ -58,7 +58,7 @@ fn init_balls(world: &mut World, config: &GenerationConfig) {
     while balls.len() < n_balls {
         let angle = rng.gen_range(0.0..(std::f32::consts::TAU));
         let speed = rng.gen_range(3.0..50.0);
-        let radius = rng.gen_range(2.0..8.0);
+        let radius = rng.gen_range(2.0..30.0);
         let ball = Ball {
             position: Vector2::new(
                 rng.gen_range(radius..(config.width as f32 - radius)),
