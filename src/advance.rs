@@ -7,7 +7,7 @@ pub fn advance_balls(ball: &mut Ball, #[resource] simulation_data: &SimulationDa
     advance_single_ball(ball, simulation_data.next_time);
 }
 
-pub fn advance_single_ball(ball: &mut Ball, next_time: f32) {
+pub fn advance_single_ball(ball: &mut Ball, next_time: f64) {
     ball.position += ball.velocity * (next_time - ball.initial_time);
     ball.initial_time = next_time;
 }

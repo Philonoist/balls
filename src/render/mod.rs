@@ -283,13 +283,16 @@ mod fs {
                 float d = sqrt(1-coords.y*coords.y);
                 float t0 = max(0, coords.x-d);
                 float t1 = min(L, coords.x+d);
-                float length = t1-t0;
-                float normalized_length = (length+EPSILON)/(L+EPSILON);
+                float seg = t1-t0;
+                seg += fwidth(seg);
+                float normalized_length = (seg+EPSILON)/(L+EPSILON);
                 float alpha = clamp(normalized_length, 0, 1);
 
                 float ex = coords.x-clamp(coords.x, 0, L);
                 float dist = sqrt(ex*ex + coords.y*coords.y);
-                float factor = clamp((1-dist)/fwidth(dist), 0, 1);
+                float pwidth = length(vec2(dFdx(dist), dFdy(dist)));
+                float factor = smoothstep(-1.0, 1.0, (1-dist)/pwidth);
+                // alpha = factor;
                 alpha *= factor;
                 f_color = vec4(1.0, 1.0, 0.0, alpha);
             }
@@ -318,18 +321,13 @@ pub fn render_balls(
             }
             Err(e) => panic!("Failed to acquire next image: {:?}", e),
         };
-    let clear_values = vec![[0.0, 0.0, 1.0, 1.0].into()];
+    let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
     let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
         graphics.device.clone(),
         graphics.queue.family(),
     )
     .unwrap();
 
-    println!(
-        "image_num: {}, f: {}",
-        image_num,
-        graphics.previous_frame_ends[image_num].is_some()
-    );
     // Wait for last render of that image to end.
     graphics.previous_frame_ends[image_num].take().map(|res| {
         res.then_signal_fence().wait(None).unwrap();
@@ -351,16 +349,16 @@ pub fn render_balls(
             index_buffer_data[index_index + 4] = (vertex_index + 1) as u16;
             index_buffer_data[index_index + 5] = (vertex_index + 3) as u16;
 
-            for vo in [-1.0f32, 1.0].iter() {
-                for ho in [-1.0f32, 1.0].iter() {
+            for vo in [-1.1f64, 1.1].iter() {
+                for ho in [-1.1f64, 1.1].iter() {
                     vertex_buffer_data[vertex_index] = Vertex {
                         position: [
-                            -1.0 + 2.0 * (ball.position[0] + ho * ball.radius)
+                            -1.0 + 2.0 * (ball.position[0] + ho * ball.radius) as f32
                                 / graphics.config.width as f32,
-                            -1.0 + 2.0 * (ball.position[1] + vo * ball.radius)
+                            -1.0 + 2.0 * (ball.position[1] + vo * ball.radius) as f32
                                 / graphics.config.height as f32,
                         ],
-                        coords: [*ho, *vo],
+                        coords: [*ho as f32, *vo as f32],
                     };
                     vertex_index += 1;
                 }
@@ -396,12 +394,6 @@ pub fn render_balls(
         .join(acquire_future)
         .then_execute(graphics.queue.clone(), command_buffer)
         .unwrap()
-        // The color output is now expected to contain our triangle. But in order to show it on
-        // the screen, we have to *present* the image by calling `present`.
-        //
-        // This function does not actually present the image immediately. Instead it submits a
-        // present command at the end of the queue. This means that it will only be presented once
-        // the GPU has finished executing the command buffer that draws the triangle.
         .then_swapchain_present(
             graphics.queue.clone(),
             graphics.swapchain.clone(),
@@ -411,12 +403,6 @@ pub fn render_balls(
 
     match future {
         Ok(future) => {
-            // future.wait(None);
-            // {
-            //     (*graphics.vertex_buffer).write().map(|mut wl| {
-            //         wl[0].position[0] = simulation_data.time / 10.;
-            //     });
-            // }
             graphics.previous_frame_ends[image_num] = Some(future.boxed());
         }
         Err(FlushError::OutOfDate) => {

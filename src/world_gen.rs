@@ -18,9 +18,9 @@ pub fn init_world(world: &mut World, config: GenerationConfig) {
 fn init_walls(world: &mut World, config: &GenerationConfig) {
     let points = [
         Vector2::new(0., 0.),
-        Vector2::new(config.width as f32, 0.),
-        Vector2::new(config.width as f32, config.height as f32),
-        Vector2::new(0., config.height as f32),
+        Vector2::new(config.width as f64, 0.),
+        Vector2::new(config.width as f64, config.height as f64),
+        Vector2::new(0., config.height as f64),
     ];
     let mut walls = std::vec::Vec::<(Wall,)>::new();
     walls.reserve(4);
@@ -56,13 +56,13 @@ fn init_balls(world: &mut World, config: &GenerationConfig) {
     balls.reserve(n_balls);
 
     while balls.len() < n_balls {
-        let angle = rng.gen_range(0.0..(std::f32::consts::TAU));
+        let angle = rng.gen_range(0.0..(std::f64::consts::TAU));
         let speed = rng.gen_range(3.0..50.0);
         let radius = rng.gen_range(2.0..30.0);
         let ball = Ball {
             position: Vector2::new(
-                rng.gen_range(radius..(config.width as f32 - radius)),
-                rng.gen_range(radius..(config.height as f32 - radius)),
+                rng.gen_range(radius..(config.width as f64 - radius)),
+                rng.gen_range(radius..(config.height as f64 - radius)),
             ),
             velocity: Vector2::new(speed * angle.cos(), speed * angle.sin()),
             radius: radius,

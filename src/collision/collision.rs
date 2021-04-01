@@ -1,5 +1,5 @@
 use super::{
-    collidable::{fetch_collidable_copy, write_collidable, CollidableType},
+    collidable::{fetch_collidable_copy, write_collidable, CollidableType, EPSILON},
     colliders::collide,
     solvers::{get_movement_bounding_box, solve_collision},
 };
@@ -14,7 +14,7 @@ use ordered_float::OrderedFloat;
 use priority_queue::PriorityQueue;
 
 use super::collidable::Collidable;
-const CELL_SIZE: f32 = 20.;
+const CELL_SIZE: f64 = 20.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash, Eq)]
 struct GenerationalCollisionEntity {
@@ -41,12 +41,12 @@ pub struct CollisionDetectionData {
     last_box: FnvHashMap<GenerationalCollisionEntity, (i32, i32, i32, i32)>,
     collisions_events: PriorityQueue<
         (GenerationalCollisionEntity, GenerationalCollisionEntity),
-        OrderedFloat<f32>,
+        OrderedFloat<f64>,
     >,
     // TODO: Set that remembers?
 }
 
-fn get_cell_range_for_movement(collidable: &Collidable, next_time: f32) -> (i32, i32, i32, i32) {
+fn get_cell_range_for_movement(collidable: &Collidable, next_time: f64) -> (i32, i32, i32, i32) {
     let (min_coords, max_coords) = get_movement_bounding_box(collidable, next_time);
     return (
         std::cmp::max(0, (min_coords.x / CELL_SIZE).floor() as i32),
@@ -62,8 +62,8 @@ impl CollisionDetectionData {
         world: &SubWorld,
         entity: GenerationalCollisionEntity,
         collidable: &Collidable,
-        time: f32,
-        next_time: f32,
+        time: f64,
+        next_time: f64,
     ) {
         let (i0, i1, j0, j1) = get_cell_range_for_movement(collidable, next_time);
         self.last_box.insert(entity, (i0, i1, j0, j1));
@@ -91,11 +91,9 @@ impl CollisionDetectionData {
             );
             let collisions_sol = solve_collision(collidable, &candidate_collidable);
             if let Some((t0, t1)) = collisions_sol {
-                if segments_intersect((t0, t1), (time, next_time)) {
-                    self.collisions_events.push(
-                        (entity, candidate_entity),
-                        OrderedFloat(-t0.clamp(time, next_time)),
-                    );
+                if segments_intersect((t0, t1), (time - EPSILON, next_time)) {
+                    self.collisions_events
+                        .push((entity, candidate_entity), OrderedFloat(-t0));
                 }
             }
         }
@@ -114,7 +112,7 @@ impl CollisionDetectionData {
     }
 }
 
-fn segments_intersect((x0, x1): (f32, f32), (y0, y1): (f32, f32)) -> bool {
+fn segments_intersect((x0, x1): (f64, f64), (y0, y1): (f64, f64)) -> bool {
     return x1 >= y0 && y1 >= x0;
 }
 

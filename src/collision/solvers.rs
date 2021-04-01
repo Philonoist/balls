@@ -7,8 +7,8 @@ use super::collidable::EPSILON;
 
 pub fn get_movement_bounding_box(
     collidable: &Collidable,
-    next_time: f32,
-) -> (Vector2<f32>, Vector2<f32>) {
+    next_time: f64,
+) -> (Vector2<f64>, Vector2<f64>) {
     match collidable {
         Collidable::Ball(ball) => {
             // Compute bounding box.
@@ -33,7 +33,7 @@ pub fn get_movement_bounding_box(
 pub fn solve_collision(
     collidable: &Collidable,
     other_collidable: &Collidable,
-) -> Option<(f32, f32)> {
+) -> Option<(f64, f64)> {
     match collidable {
         Collidable::Ball(ball) => match other_collidable {
             Collidable::Ball(other_ball) => solve_collision_ball_ball(ball, other_ball),
@@ -46,7 +46,7 @@ pub fn solve_collision(
     }
 }
 
-fn solve_collision_ball_wall(ball: &Ball, wall: &Wall) -> Option<(f32, f32)> {
+fn solve_collision_ball_wall(ball: &Ball, wall: &Wall) -> Option<(f64, f64)> {
     // TODO: segments;
     let normal = wall.normal();
     // normal*(pb-pw+vt)=r.
@@ -63,7 +63,7 @@ fn solve_collision_ball_wall(ball: &Ball, wall: &Wall) -> Option<(f32, f32)> {
     return Some((-b0 / a + ball.initial_time, -b1 / a + ball.initial_time));
 }
 
-fn solve_collision_ball_ball(ball: &Ball, other_ball: &Ball) -> Option<(f32, f32)> {
+fn solve_collision_ball_ball(ball: &Ball, other_ball: &Ball) -> Option<(f64, f64)> {
     // Shift to start at the same time.
     // d(p0+v0(t-t0), p1+v1(t-t1)) <= r0+r1.
     // || p0-v0t0-p1+v1t1 +t(v0-v1) ||^2 <= (r0+r1)^2.
@@ -81,19 +81,37 @@ fn solve_collision_ball_ball(ball: &Ball, other_ball: &Ball) -> Option<(f32, f32
     }
 
     let a = dv.dot(&dv);
-    let b = dv.dot(&affine) * 2.;
-    let c =
-        affine.dot(&affine) - (ball.radius + other_ball.radius) * (ball.radius + other_ball.radius);
+    let b = (dv.dot(&affine) * 2.);
+    let c = (affine.dot(&affine)
+        - (ball.radius + other_ball.radius) * (ball.radius + other_ball.radius));
 
     let disc = b * b - 4. * a * c;
-    if disc < -EPSILON {
+    if disc < 0.0 {
         return None;
     }
 
-    let sqrt_disc = disc.max(0.).sqrt();
+    let sqrt_disc = disc.sqrt();
 
     // Entry time is the first root.
-    let root0 = (-b - sqrt_disc) / (2. * a);
-    let mid = -b / (2. * a);
+    let root0 = ((-b - sqrt_disc) / (2. * a)) as f64;
+    let mid = (-b / (2. * a)) as f64;
+
+    let delta = (ball.position + (root0 - ball.initial_time) * ball.velocity
+        - other_ball.position
+        - (root0 - other_ball.initial_time) * other_ball.velocity)
+        .norm()
+        - ball.radius
+        - other_ball.radius;
+    if delta > 0.1 {
+        println!(
+            "delta2: {}, a: {}, b:{}, c:{}, disc:{}",
+            delta, a, b, c, disc
+        );
+        println!(
+            "res: {}",
+            (a as f64) * root0 * root0 + (b as f64) * root0 + (c as f64)
+        );
+    }
+
     return Some((root0, mid));
 }

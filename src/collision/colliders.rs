@@ -9,7 +9,7 @@ pub fn collide<'a>(
     generation: i32,
     other_collidable: Collidable,
     other_generation: i32,
-    t: f32,
+    t: f64,
 ) -> Option<(Option<Collidable<'a>>, Option<Collidable<'a>>)> {
     match collidable {
         Collidable::Ball(ball) => {
@@ -42,7 +42,7 @@ pub fn collide<'a>(
 fn collide_ball_wall<'a>(
     ball: &Ball,
     wall: &Wall,
-    t: f32,
+    t: f64,
 ) -> (Option<Collidable<'a>>, Option<Collidable<'a>>) {
     // Wall does not move.
     let mut new_ball = ball.clone();
@@ -60,7 +60,7 @@ fn collide_ball_wall<'a>(
 fn collide_ball_ball<'a>(
     ball: &Ball,
     other_ball: &Ball,
-    t: f32,
+    t: f64,
 ) -> (Option<Collidable<'a>>, Option<Collidable<'a>>) {
     let mut ball0 = ball.clone();
     let mut ball1 = other_ball.clone();

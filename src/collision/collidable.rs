@@ -3,7 +3,7 @@ use maybe_owned::MaybeOwned;
 
 use crate::{ball::Ball, wall::Wall};
 
-pub const EPSILON: f32 = 1e-5;
+pub const EPSILON: f64 = 1e-5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash, Eq)]
 pub enum CollidableType {

@@ -4,14 +4,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SimulationData {
-    pub time: f32,
-    pub next_time: f32,
+    pub time: f64,
+    pub next_time: f64,
     pub last_simulated: i64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SimulationConfig {
-    pub time_delta: f32,
+    pub time_delta: f64,
 }
 
 pub fn init_simulation(resources: &mut Resources, simulation_config: SimulationConfig) {
@@ -46,7 +46,7 @@ pub fn advance_time(
     simulation_data.last_simulated = current_time + (ms_to_sleep as i64);
 }
 
-pub fn adjust_simulation_speed(resources: &mut Resources, factor: f32) {
+pub fn adjust_simulation_speed(resources: &mut Resources, factor: f64) {
     if let Some(mut simulation_config) = resources.get_mut::<SimulationConfig>() {
         simulation_config.time_delta *= factor;
     }
