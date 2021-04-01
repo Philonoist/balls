@@ -2,7 +2,10 @@ use crate::{ball::Ball, simulation::SimulationData};
 use legion::IntoQuery;
 use legion::{system, world::SubWorld};
 use std::{any::Any, sync::Arc};
-use vulkano::buffer::BufferUsage;
+use vulkano::{
+    buffer::BufferUsage,
+    pipeline::blend::{AttachmentBlend, BlendFactor, BlendOp},
+};
 use vulkano::{
     buffer::CpuAccessibleBuffer,
     command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents},
@@ -183,6 +186,19 @@ pub fn init_graphics(display_config: DisplayConfig) -> (Graphics, EventLoop<()>)
             .triangle_list()
             .viewports_dynamic_scissors_irrelevant(1)
             .fragment_shader(fs.main_entry_point(), ())
+            .blend_collective(AttachmentBlend {
+                enabled: true,
+                color_op: BlendOp::Add,
+                color_source: BlendFactor::SrcAlpha,
+                color_destination: BlendFactor::OneMinusSrcAlpha,
+                alpha_op: BlendOp::Add,
+                alpha_source: BlendFactor::One,
+                alpha_destination: BlendFactor::Zero,
+                mask_red: true,
+                mask_green: true,
+                mask_blue: true,
+                mask_alpha: true,
+            })
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .build(device.clone())
             .unwrap(),
@@ -259,15 +275,23 @@ mod fs {
         ty: "fragment",
         src: "
             #version 450
+            const float EPSILON = 0.0001;
             layout(location = 0) in vec2 coords;
             layout(location = 0) out vec4 f_color;
             void main() {
-                float L = 0.01;
+                float L = 0.0;
                 float d = sqrt(1-coords.y*coords.y);
                 float t0 = max(0, coords.x-d);
                 float t1 = min(L, coords.x+d);
-                // f_color = vec4(1.0, 0.0, 0.0, (t1-t0)/L);
-                f_color = vec4((t1-t0)/L, 0.0, 0.0, 1.0);
+                float length = t1-t0;
+                float normalized_length = (length+EPSILON)/(L+EPSILON);
+                float alpha = clamp(normalized_length, 0, 1);
+
+                float ex = coords.x-clamp(coords.x, 0, L);
+                float dist = sqrt(ex*ex + coords.y*coords.y);
+                float factor = clamp((1-dist)/fwidth(dist), 0, 1);
+                alpha *= factor;
+                f_color = vec4(1.0, 1.0, 0.0, alpha);
             }
         "
     }
