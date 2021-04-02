@@ -1,6 +1,7 @@
-use crate::{ball::Ball, simulation::SimulationData};
+use crate::{ball::Ball, ball::Trails, simulation::SimulationData};
 use legion::IntoQuery;
 use legion::{system, world::SubWorld};
+use nalgebra::Vector2;
 use std::{any::Any, sync::Arc};
 use vulkano::{
     buffer::BufferUsage,
@@ -44,8 +45,10 @@ pub struct DisplayConfig {
 pub struct Vertex {
     position: [f32; 2],
     coords: [f32; 2],
+    trail_length: f32,
+    total_portion: f32,
 }
-vulkano::impl_vertex!(Vertex, position, coords);
+vulkano::impl_vertex!(Vertex, position, coords, trail_length, total_portion);
 
 pub struct Graphics {
     config: DisplayConfig,
@@ -190,7 +193,7 @@ pub fn init_graphics(display_config: DisplayConfig) -> (Graphics, EventLoop<()>)
                 enabled: true,
                 color_op: BlendOp::Add,
                 color_source: BlendFactor::SrcAlpha,
-                color_destination: BlendFactor::OneMinusSrcAlpha,
+                color_destination: BlendFactor::One,
                 alpha_op: BlendOp::Add,
                 alpha_source: BlendFactor::One,
                 alpha_destination: BlendFactor::Zero,
@@ -261,10 +264,16 @@ mod vs {
             #version 450
             layout(location = 0) in vec2 position;
             layout(location = 1) in vec2 coords;
+            layout(location = 2) in float trail_length;
+            layout(location = 3) in float total_portion;
             layout(location = 0) out vec2 outCoords;
+            layout(location = 1) out float out_trail_length;
+            layout(location = 2) out float out_total_portion;
             void main() {
                 gl_Position = vec4(position, 0.0, 1.0);
                 outCoords = coords;
+                out_trail_length = trail_length;
+                out_total_portion = total_portion;
             }
         "
     }
@@ -276,22 +285,46 @@ mod fs {
         src: "
             #version 450
             const float EPSILON = 0.0001;
+            const float aa_pixels = 2.;
             layout(location = 0) in vec2 coords;
+            layout(location = 1) in float trail_length;
+            layout(location = 2) in float total_portion;
             layout(location = 0) out vec4 f_color;
-            void main() {
-                float L = 0.0;
-                float d = sqrt(1-coords.y*coords.y);
-                float t0 = max(0, coords.x-d);
-                float t1 = min(L, coords.x+d);
-                float seg = t1-t0;
-                seg += fwidth(seg);
-                float normalized_length = (seg+EPSILON)/(L+EPSILON);
-                float alpha = clamp(normalized_length, 0, 1);
 
-                float ex = coords.x-clamp(coords.x, 0, L);
+            float correct_value(float val, float d){
+                if (val - d < 0){
+                    return (val+d)/2;
+                }
+                return val;
+            }
+
+            void main() {
+                // The goal of anti aliasing is estimating the lit area, and sampling the color at the middle of
+                // that area (i.e. average color).
+                // For the second bit, we make sure to correct the values sampled.
+                // For the first, we compute the area with the 'factor' logic.
+                
+                // In our case, the color is seg.
+                // At the top/bottom, 
+                float d2 = 1-coords.y*coords.y;
+                float dwidth = length(vec2(dFdx(d2), dFdy(d2)));
+                d2 = correct_value(d2, dwidth*0.5*aa_pixels);
+
+                float d = sqrt(max(0,d2));
+                float t0 = max(0, coords.x-d);
+                float t1 = min(trail_length, coords.x+d);
+                // Note that seg reaches negative value at the sides.
+                float seg = t1 - t0;
+                float xwidth = length(vec2(dFdx(coords.x), dFdy(coords.x)));
+                seg = correct_value(seg, xwidth*0.5*aa_pixels);
+                float normalized_length = (seg+EPSILON)/(trail_length+EPSILON)*total_portion;
+                float alpha = clamp(normalized_length, 0, 1);
+                // alpha=seg;
+
+                float ex = coords.x-clamp(coords.x, 0, trail_length);
                 float dist = sqrt(ex*ex + coords.y*coords.y);
                 float pwidth = length(vec2(dFdx(dist), dFdy(dist)));
-                float factor = smoothstep(-1.0, 1.0, (1-dist)/pwidth);
+                float factor = smoothstep(-0.5*aa_pixels, 0.5*aa_pixels, (1-dist)/pwidth);
                 // alpha = factor;
                 alpha *= factor;
                 f_color = vec4(1.0, 1.0, 0.0, alpha);
@@ -307,6 +340,7 @@ fn create_shaders(device: &Arc<Device>) -> (vs::Shader, fs::Shader) {
 
 #[system]
 #[read_component(Ball)]
+#[read_component(Trails)]
 pub fn render_balls(
     world: &mut SubWorld,
     #[resource] graphics: &mut Graphics,
@@ -339,30 +373,47 @@ pub fn render_balls(
     {
         let mut vertex_buffer_data = vertex_buffer.write().unwrap();
         let mut index_buffer_data = index_buffer.write().unwrap();
-        for (i, ball) in <&Ball>::query().iter(world).enumerate() {
-            let index_index = 6 * i;
-            let mut vertex_index = 4 * i;
-            index_buffer_data[index_index + 0] = (vertex_index) as u16;
-            index_buffer_data[index_index + 1] = (vertex_index + 1) as u16;
-            index_buffer_data[index_index + 2] = (vertex_index + 2) as u16;
-            index_buffer_data[index_index + 3] = (vertex_index + 2) as u16;
-            index_buffer_data[index_index + 4] = (vertex_index + 1) as u16;
-            index_buffer_data[index_index + 5] = (vertex_index + 3) as u16;
+        let mut vertex_index = 0;
+        let mut index_index = 0;
+        for (ball, trails) in <(&Ball, &Trails)>::query().iter(world) {
+            for trail in trails.trails.iter() {
+                let mut u_vec = trail.position1 - trail.position0;
+                let trail_length = u_vec.norm() / ball.radius;
+                u_vec /= u_vec.norm();
+                let v_vec = Vector2::new(-u_vec[1], u_vec[0]);
 
-            for vo in [-1.1f64, 1.1].iter() {
-                for ho in [-1.1f64, 1.1].iter() {
-                    vertex_buffer_data[vertex_index] = Vertex {
-                        position: [
-                            -1.0 + 2.0 * (ball.position[0] + ho * ball.radius) as f32
-                                / graphics.config.width as f32,
-                            -1.0 + 2.0 * (ball.position[1] + vo * ball.radius) as f32
-                                / graphics.config.height as f32,
-                        ],
-                        coords: [*ho as f32, *vo as f32],
-                    };
-                    vertex_index += 1;
+                index_buffer_data[index_index + 0] = (vertex_index) as u16;
+                index_buffer_data[index_index + 1] = (vertex_index + 1) as u16;
+                index_buffer_data[index_index + 2] = (vertex_index + 2) as u16;
+                index_buffer_data[index_index + 3] = (vertex_index + 2) as u16;
+                index_buffer_data[index_index + 4] = (vertex_index + 1) as u16;
+                index_buffer_data[index_index + 5] = (vertex_index + 3) as u16;
+                index_index += 6;
+
+                for vo in [-1.1f64, 1.1].iter() {
+                    for ho in [-1.1f64, trail_length + 1.1].iter() {
+                        let position = trail.position0 + (*vo * v_vec + *ho * u_vec) * ball.radius;
+                        vertex_buffer_data[vertex_index] = Vertex {
+                            position: [
+                                -1.0 + 2.0 * position[0] as f32 / graphics.config.width as f32,
+                                -1.0 + 2.0 * position[1] as f32 / graphics.config.height as f32,
+                            ],
+                            coords: [*ho as f32, *vo as f32],
+                            trail_length: trail_length as f32,
+                            total_portion: ((trail.final_time - trail.initial_time)
+                                / (simulation_data.next_time - simulation_data.time))
+                                as f32,
+                        };
+                        vertex_index += 1;
+                    }
                 }
             }
+        }
+
+        // Clear the rest of the index buffer;
+        while index_index < index_buffer_data.len() {
+            index_buffer_data[index_index] = 0;
+            index_index += 1;
         }
     }
 

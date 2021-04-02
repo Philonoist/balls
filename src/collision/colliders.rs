@@ -1,94 +1,142 @@
+use super::collidable::{CollidableType, Generation};
+use legion::{
+    world::{EntryRef, SubWorld},
+    Entity, EntityStore,
+};
 use maybe_owned::MaybeOwned;
 
-use crate::{advance::advance_single_ball, ball::Ball, wall::Wall};
+use crate::{
+    advance::advance_single_ball,
+    ball::{Ball, Trails},
+    wall::Wall,
+};
 
-use super::collidable::Collidable;
+#[derive(Clone, Copy, Debug, PartialEq, Hash, Eq)]
+pub struct GenerationalCollisionEntity {
+    pub entity: Entity,
+    pub generation: i64,
+}
 
-pub fn collide<'a>(
-    collidable: Collidable,
-    generation: i32,
-    other_collidable: Collidable,
-    other_generation: i32,
-    t: f64,
-) -> Option<(Option<Collidable<'a>>, Option<Collidable<'a>>)> {
-    match collidable {
-        Collidable::Ball(ball) => {
-            if ball.collision_generation != generation {
-                return None;
-            }
-            match other_collidable {
-                Collidable::Ball(other_ball) => {
-                    if other_ball.collision_generation != other_generation {
-                        return None;
-                    }
-                    Some(collide_ball_ball(&ball, &other_ball, t))
-                }
-                Collidable::Wall(wall) => Some(collide_ball_wall(&ball, &wall, t)),
-            }
+pub struct EntityAndRef<'a> {
+    pub entity: Entity,
+    pub entry: EntryRef<'a>,
+}
+
+impl EntityAndRef<'_> {
+    pub fn get<'a>(world: &'a SubWorld<'a>, entity: Entity) -> EntityAndRef<'a> {
+        EntityAndRef {
+            entity,
+            entry: world.entry_ref(entity).unwrap(),
         }
-        Collidable::Wall(wall) => match other_collidable {
-            Collidable::Ball(ball) => {
-                if ball.collision_generation != other_generation {
-                    return None;
-                }
-                let res = collide_ball_wall(&ball, &wall, t);
-                Some((res.1, res.0))
-            }
-            Collidable::Wall(_) => None,
+    }
+}
+
+//get_component_unchecked
+pub fn collide<'a>(
+    world: &SubWorld,
+    entry0: &EntityAndRef,
+    entry1: &EntityAndRef,
+    t: f64,
+) -> Vec<GenerationalCollisionEntity> {
+    let collidable_type0 = entry0.entry.get_component::<CollidableType>().unwrap();
+    let collidable_type1 = entry1.entry.get_component::<CollidableType>().unwrap();
+    match collidable_type0 {
+        CollidableType::Ball => match collidable_type1 {
+            CollidableType::Ball => collide_ball_ball(world, entry0, entry1, t),
+            CollidableType::Wall => collide_ball_wall(world, entry0, entry1, t),
+        },
+        CollidableType::Wall => match collidable_type1 {
+            CollidableType::Ball => collide_ball_wall(world, entry1, entry0, t),
+            CollidableType::Wall => vec![],
         },
     }
 }
 
 fn collide_ball_wall<'a>(
-    ball: &Ball,
-    wall: &Wall,
+    world: &SubWorld,
+    entry0: &EntityAndRef,
+    entry1: &EntityAndRef,
     t: f64,
-) -> (Option<Collidable<'a>>, Option<Collidable<'a>>) {
-    // Wall does not move.
-    let mut new_ball = ball.clone();
-    advance_single_ball(&mut new_ball, t);
+) -> Vec<GenerationalCollisionEntity> {
+    unsafe {
+        let mut ball = entry0.entry.get_component_unchecked::<Ball>().unwrap();
+        let wall = entry1.entry.get_component::<Wall>().unwrap();
+        // Wall does not move.
+        let mut trails = entry0.entry.get_component_unchecked::<Trails>().unwrap();
+        advance_single_ball(&mut ball, &mut trails, t);
 
-    let normal = wall.normal();
-    new_ball.collision_generation += 1;
-    let proj = ball.velocity.dot(&normal);
-    if proj < 0. {
-        new_ball.velocity -= proj * normal * 2.;
+        let normal = wall.normal();
+        let proj = ball.velocity.dot(&normal);
+        if proj < 0. {
+            ball.velocity -= proj * normal * 2.;
+            let mut generation = entry0
+                .entry
+                .get_component_unchecked::<Generation>()
+                .unwrap();
+            generation.generation += 1;
+            return vec![GenerationalCollisionEntity {
+                entity: entry0.entity.clone(),
+                generation: generation.generation,
+            }];
+        }
+        vec![]
     }
-    (Some(Collidable::Ball(MaybeOwned::from(new_ball))), None)
 }
 
 fn collide_ball_ball<'a>(
-    ball: &Ball,
-    other_ball: &Ball,
+    world: &SubWorld,
+    entry0: &EntityAndRef,
+    entry1: &EntityAndRef,
     t: f64,
-) -> (Option<Collidable<'a>>, Option<Collidable<'a>>) {
-    let mut ball0 = ball.clone();
-    let mut ball1 = other_ball.clone();
-    advance_single_ball(&mut ball0, t);
-    advance_single_ball(&mut ball1, t);
-    ball0.collision_generation += 1;
-    ball1.collision_generation += 1;
+) -> Vec<GenerationalCollisionEntity> {
+    unsafe {
+        let mut ball0 = entry0.entry.get_component_unchecked::<Ball>().unwrap();
+        let mut ball1 = entry1.entry.get_component_unchecked::<Ball>().unwrap();
+        let mut trails0 = entry0.entry.get_component_unchecked::<Trails>().unwrap();
+        let mut trails1 = entry1.entry.get_component_unchecked::<Trails>().unwrap();
+        let mut generation0 = entry0
+            .entry
+            .get_component_unchecked::<Generation>()
+            .unwrap();
+        let mut generation1 = entry1
+            .entry
+            .get_component_unchecked::<Generation>()
+            .unwrap();
 
-    let mass0 = ball0.radius * ball0.radius;
-    let mass1 = ball1.radius * ball1.radius;
-    let dx = ball0.position - ball1.position;
-    let dv = ball0.velocity - ball1.velocity;
-    // Check if they are moving towards each other.
-    let proj = dv.dot(&dx);
-    if proj < 0. {
-        let d2 = dx.dot(&dx);
-        let a = 2. / (mass0 + mass1) * proj / d2 * dx;
-        ball0.velocity -= mass1 * a;
-        if ball0.velocity.norm() > 1000. {
-            ball0.velocity *= 1000. / ball0.velocity.norm();
+        advance_single_ball(&mut ball0, &mut trails0, t);
+        advance_single_ball(&mut ball1, &mut trails1, t);
+
+        let mass0 = ball0.radius * ball0.radius;
+        let mass1 = ball1.radius * ball1.radius;
+        let dx = ball0.position - ball1.position;
+        let dv = ball0.velocity - ball1.velocity;
+        // Check if they are moving towards each other.
+        let proj = dv.dot(&dx);
+        if proj < 0. {
+            let d2 = dx.dot(&dx);
+            let a = 2. / (mass0 + mass1) * proj / d2 * dx;
+            ball0.velocity -= mass1 * a;
+            if ball0.velocity.norm() > 1000. {
+                ball0.velocity *= 1000. / ball0.velocity.norm();
+            }
+            ball1.velocity += mass0 * a;
+            if ball1.velocity.norm() > 1000. {
+                ball1.velocity *= 1000. / ball1.velocity.norm();
+            }
+            generation0.generation += 1;
+            generation1.generation += 1;
+
+            return vec![
+                GenerationalCollisionEntity {
+                    entity: entry0.entity.clone(),
+                    generation: generation0.generation,
+                },
+                GenerationalCollisionEntity {
+                    entity: entry1.entity.clone(),
+                    generation: generation1.generation,
+                },
+            ];
         }
-        ball1.velocity += mass0 * a;
-        if ball1.velocity.norm() > 1000. {
-            ball1.velocity *= 1000. / ball1.velocity.norm();
-        }
+        vec![]
     }
-    (
-        Some(Collidable::Ball(MaybeOwned::from(ball0))),
-        Some(Collidable::Ball(MaybeOwned::from(ball1))),
-    )
 }

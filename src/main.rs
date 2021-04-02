@@ -46,11 +46,12 @@ pub fn main() {
 
     // Initialize scheduler.
     let mut schedule = Schedule::builder()
+        .add_system(crate::advance::clear_trails_system())
         .add_system(crate::collision::collision_system())
         .add_system(crate::collision::collision_handle_system())
         .add_system(crate::advance::advance_balls_system())
-        .add_system(crate::simulation::advance_time_system())
         .add_thread_local(crate::render::render_balls_system())
+        .add_system(crate::simulation::advance_time_system())
         .build();
 
     event_loop.run(move |event, _, control_flow| match event {

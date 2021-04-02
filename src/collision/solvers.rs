@@ -1,16 +1,23 @@
+use legion::{
+    world::{EntryRef, SubWorld},
+    Entity, EntityStore,
+};
 use nalgebra::Vector2;
 
 use crate::{ball::Ball, wall::Wall};
 
-use super::collidable::Collidable;
+use super::collidable::CollidableType;
 use super::collidable::EPSILON;
 
 pub fn get_movement_bounding_box(
-    collidable: &Collidable,
+    world: &SubWorld,
+    entry: &EntryRef,
     next_time: f64,
 ) -> (Vector2<f64>, Vector2<f64>) {
-    match collidable {
-        Collidable::Ball(ball) => {
+    let collidable_type = entry.get_component::<CollidableType>().unwrap();
+    match collidable_type {
+        CollidableType::Ball => {
+            let ball = entry.get_component::<Ball>().unwrap();
             // Compute bounding box.
             let time_delta = next_time - ball.initial_time;
             let new_position = ball.position + ball.velocity * time_delta;
@@ -23,26 +30,44 @@ pub fn get_movement_bounding_box(
                     .add_scalar(ball.radius + EPSILON),
             )
         }
-        Collidable::Wall(wall) => (
-            wall.p0.inf(&wall.p1).add_scalar(-EPSILON),
-            wall.p0.sup(&wall.p1.add_scalar(EPSILON)),
-        ),
+        CollidableType::Wall => {
+            let wall = entry.get_component::<Wall>().unwrap();
+            (
+                wall.p0.inf(&wall.p1).add_scalar(-EPSILON),
+                wall.p0.sup(&wall.p1.add_scalar(EPSILON)),
+            )
+        }
     }
 }
 
 pub fn solve_collision(
-    collidable: &Collidable,
-    other_collidable: &Collidable,
+    world: &SubWorld,
+    entry0: &EntryRef,
+    entry1: &EntryRef,
 ) -> Option<(f64, f64)> {
-    match collidable {
-        Collidable::Ball(ball) => match other_collidable {
-            Collidable::Ball(other_ball) => solve_collision_ball_ball(ball, other_ball),
-            Collidable::Wall(wall) => solve_collision_ball_wall(ball, wall),
-        },
-        Collidable::Wall(wall) => match other_collidable {
-            Collidable::Ball(ball) => solve_collision_ball_wall(ball, wall),
-            Collidable::Wall(_) => None,
-        },
+    let collidable_type0 = entry0.get_component::<CollidableType>().unwrap();
+    let collidable_type1 = entry1.get_component::<CollidableType>().unwrap();
+    match collidable_type0 {
+        CollidableType::Ball => {
+            let ball0 = entry0.get_component::<Ball>().unwrap();
+            match collidable_type1 {
+                CollidableType::Ball => {
+                    solve_collision_ball_ball(ball0, entry1.get_component::<Ball>().unwrap())
+                }
+                CollidableType::Wall => {
+                    solve_collision_ball_wall(ball0, entry1.get_component::<Wall>().unwrap())
+                }
+            }
+        }
+        CollidableType::Wall => {
+            let wall0 = entry0.get_component::<Wall>().unwrap();
+            match collidable_type1 {
+                CollidableType::Ball => {
+                    solve_collision_ball_wall(entry1.get_component::<Ball>().unwrap(), wall0)
+                }
+                CollidableType::Wall => None,
+            }
+        }
     }
 }
 

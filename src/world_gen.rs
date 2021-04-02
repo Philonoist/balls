@@ -1,5 +1,8 @@
-use crate::ball::Ball;
 use crate::wall::Wall;
+use crate::{
+    ball::{Ball, Trails},
+    collision::collidable::{CollidableType, Generation},
+};
 use legion::World;
 use nalgebra::Vector2;
 use rand::Rng;
@@ -22,26 +25,42 @@ fn init_walls(world: &mut World, config: &GenerationConfig) {
         Vector2::new(config.width as f64, config.height as f64),
         Vector2::new(0., config.height as f64),
     ];
-    let mut walls = std::vec::Vec::<(Wall,)>::new();
+    let mut walls = std::vec::Vec::<(Wall, CollidableType, Generation)>::new();
     walls.reserve(4);
     walls.extend(
         [
-            (Wall {
-                p0: points[0],
-                p1: points[1],
-            },),
-            (Wall {
-                p0: points[1],
-                p1: points[2],
-            },),
-            (Wall {
-                p0: points[2],
-                p1: points[3],
-            },),
-            (Wall {
-                p0: points[3],
-                p1: points[0],
-            },),
+            (
+                Wall {
+                    p0: points[0],
+                    p1: points[1],
+                },
+                CollidableType::Wall,
+                Generation { generation: 0 },
+            ),
+            (
+                Wall {
+                    p0: points[1],
+                    p1: points[2],
+                },
+                CollidableType::Wall,
+                Generation { generation: 0 },
+            ),
+            (
+                Wall {
+                    p0: points[2],
+                    p1: points[3],
+                },
+                CollidableType::Wall,
+                Generation { generation: 0 },
+            ),
+            (
+                Wall {
+                    p0: points[3],
+                    p1: points[0],
+                },
+                CollidableType::Wall,
+                Generation { generation: 0 },
+            ),
         ]
         .iter(),
     );
@@ -51,8 +70,8 @@ fn init_walls(world: &mut World, config: &GenerationConfig) {
 fn init_balls(world: &mut World, config: &GenerationConfig) {
     // let mut rng = rand::thread_rng();
     let mut rng = Pcg64::new(0xcafef00dd15ea5e5, 0xa02bdbf7bb3c0a7ac28fa16a64abf96);
-    let n_balls = 1500;
-    let mut balls = std::vec::Vec::<(Ball,)>::new();
+    let n_balls = 1000;
+    let mut balls = std::vec::Vec::<(Ball, Trails, CollidableType, Generation)>::new();
     balls.reserve(n_balls);
 
     while balls.len() < n_balls {
@@ -67,12 +86,11 @@ fn init_balls(world: &mut World, config: &GenerationConfig) {
             velocity: Vector2::new(speed * angle.cos(), speed * angle.sin()),
             radius: radius,
             initial_time: 0.,
-            collision_generation: 0,
         };
 
         // Check it doesn't overlap with an existing ball.
         let mut found = false;
-        for (other_ball,) in &balls {
+        for (other_ball, _, _, _) in &balls {
             if (other_ball.position - ball.position).norm() <= other_ball.radius + ball.radius {
                 found = true;
                 break;
@@ -81,7 +99,12 @@ fn init_balls(world: &mut World, config: &GenerationConfig) {
         if found {
             continue;
         }
-        balls.push((ball,));
+        balls.push((
+            ball,
+            Trails::default(),
+            CollidableType::Ball,
+            Generation { generation: 0 },
+        ));
     }
     world.extend(balls);
 }

@@ -2,6 +2,7 @@ use legion::*;
 use log::info;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+const FRAME_TIME_CAP: i64 = 16;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SimulationData {
     pub time: f64,
@@ -41,7 +42,10 @@ pub fn advance_time(
         "Frame time: {}",
         current_time - simulation_data.last_simulated
     );
-    let ms_to_sleep = std::cmp::max(0, 16 - (current_time - simulation_data.last_simulated)) as u64;
+    let ms_to_sleep = std::cmp::max(
+        0,
+        FRAME_TIME_CAP - (current_time - simulation_data.last_simulated),
+    ) as u64;
     std::thread::sleep(Duration::from_millis(ms_to_sleep));
     simulation_data.last_simulated = current_time + (ms_to_sleep as i64);
 }

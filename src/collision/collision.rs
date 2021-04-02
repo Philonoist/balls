@@ -1,40 +1,26 @@
 use super::{
-    collidable::{fetch_collidable_copy, write_collidable, CollidableType, EPSILON},
-    colliders::collide,
+    collidable::{CollidableType, Generation, EPSILON},
+    colliders::{collide, EntityAndRef, GenerationalCollisionEntity},
     solvers::{get_movement_bounding_box, solve_collision},
 };
-use crate::{ball::Ball, simulation::SimulationData, wall::Wall};
+use crate::{ball::Ball, ball::Trails, simulation::SimulationData, wall::Wall};
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
-use legion::IntoQuery;
-use legion::{system, world::SubWorld, Entity};
+use legion::{
+    query::View,
+    system,
+    world::{EntryRef, SubWorld},
+    Entity,
+};
+use legion::{EntityStore, IntoQuery};
 use log::debug;
 use maybe_owned::MaybeOwned;
 use ordered_float::OrderedFloat;
 use priority_queue::PriorityQueue;
 
-use super::collidable::Collidable;
 const CELL_SIZE: f64 = 20.;
 
-#[derive(Clone, Copy, Debug, PartialEq, Hash, Eq)]
-struct GenerationalCollisionEntity {
-    entity: Entity,
-    collidable_type: CollidableType,
-    generation: i32,
-}
-
 // This is ugly.
-impl GenerationalCollisionEntity {
-    fn next(self) -> GenerationalCollisionEntity {
-        match self.collidable_type {
-            CollidableType::Ball => GenerationalCollisionEntity {
-                generation: self.generation + 1,
-                ..self
-            },
-            CollidableType::Wall => self,
-        }
-    }
-}
 #[derive(Default)]
 pub struct CollisionDetectionData {
     spatial_buckets: FnvHashMap<(i32, i32), FnvHashSet<GenerationalCollisionEntity>>,
@@ -46,8 +32,12 @@ pub struct CollisionDetectionData {
     // TODO: Set that remembers?
 }
 
-fn get_cell_range_for_movement(collidable: &Collidable, next_time: f64) -> (i32, i32, i32, i32) {
-    let (min_coords, max_coords) = get_movement_bounding_box(collidable, next_time);
+fn get_cell_range_for_movement(
+    world: &SubWorld,
+    entry: &EntryRef,
+    next_time: f64,
+) -> (i32, i32, i32, i32) {
+    let (min_coords, max_coords) = get_movement_bounding_box(world, &entry, next_time);
     return (
         std::cmp::max(0, (min_coords.x / CELL_SIZE).floor() as i32),
         std::cmp::min(100, (max_coords.x / CELL_SIZE).ceil() as i32) + 1,
@@ -61,11 +51,11 @@ impl CollisionDetectionData {
         &mut self,
         world: &SubWorld,
         entity: GenerationalCollisionEntity,
-        collidable: &Collidable,
         time: f64,
         next_time: f64,
     ) {
-        let (i0, i1, j0, j1) = get_cell_range_for_movement(collidable, next_time);
+        let entry = world.entry_ref(entity.entity).unwrap();
+        let (i0, i1, j0, j1) = get_cell_range_for_movement(world, &entry, next_time);
         self.last_box.insert(entity, (i0, i1, j0, j1));
         // Find candidates using spatial hash mapping.
         let mut results = FnvHashSet::<GenerationalCollisionEntity>::default();
@@ -84,12 +74,8 @@ impl CollisionDetectionData {
 
         // Solve collisions.
         for candidate_entity in results {
-            let candidate_collidable = fetch_collidable_copy(
-                world,
-                candidate_entity.collidable_type,
-                candidate_entity.entity,
-            );
-            let collisions_sol = solve_collision(collidable, &candidate_collidable);
+            let candidate_entry = world.entry_ref(candidate_entity.entity).unwrap();
+            let collisions_sol = solve_collision(world, &entry, &candidate_entry);
             if let Some((t0, t1)) = collisions_sol {
                 if segments_intersect((t0, t1), (time - EPSILON, next_time)) {
                     self.collisions_events
@@ -117,8 +103,10 @@ fn segments_intersect((x0, x1): (f64, f64), (y0, y1): (f64, f64)) -> bool {
 }
 
 #[system]
-#[read_component(Entity)]
 #[read_component(Ball)]
+#[read_component(CollidableType)]
+#[read_component(Entity)]
+#[read_component(Generation)]
 #[read_component(Wall)]
 pub fn collision(
     world: &mut SubWorld,
@@ -129,31 +117,14 @@ pub fn collision(
     collision_detection_data.spatial_buckets.clear();
     collision_detection_data.collisions_events.clear();
 
-    // Iterate balls.
-    for (entity, ball) in <(Entity, &Ball)>::query().iter(world) {
+    // Iterate collidables.
+    for (entity, generation, _) in <(Entity, &Generation, &CollidableType)>::query().iter(world) {
         collision_detection_data.add(
             world,
             GenerationalCollisionEntity {
-                collidable_type: CollidableType::Ball,
                 entity: entity.clone(),
-                generation: ball.collision_generation,
+                generation: generation.generation,
             },
-            &Collidable::Ball(MaybeOwned::from(ball)),
-            simulation_data.time,
-            simulation_data.next_time,
-        );
-    }
-
-    // Iterate walls.
-    for (entity, wall) in <(Entity, &Wall)>::query().iter(world) {
-        collision_detection_data.add(
-            world,
-            GenerationalCollisionEntity {
-                collidable_type: CollidableType::Wall,
-                entity: entity.clone(),
-                generation: 0,
-            },
-            &Collidable::Wall(MaybeOwned::from(wall)),
             simulation_data.time,
             simulation_data.next_time,
         );
@@ -161,8 +132,12 @@ pub fn collision(
 }
 
 #[system]
+#[read_component(CollidableType)]
+#[read_component(Entity)]
+#[read_component(Wall)]
 #[write_component(Ball)]
-#[write_component(Wall)]
+#[write_component(Generation)]
+#[write_component(Trails)]
 pub fn collision_handle(
     world: &mut SubWorld,
     #[resource] simulation_data: &SimulationData,
@@ -180,48 +155,30 @@ pub fn collision_handle(
             collision_entity0, collision_entity1, collision_time
         );
 
-        // TODO: Consider separating collision_generation to its own (optional?) component.
-        let collidable0 = fetch_collidable_copy(
-            world,
-            collision_entity0.collidable_type,
-            collision_entity0.entity,
-        );
-        let collidable1 = fetch_collidable_copy(
-            world,
-            collision_entity1.collidable_type,
-            collision_entity1.entity,
-        );
+        let entry0 = EntityAndRef::get(world, collision_entity0.entity);
+        let entry1 = EntityAndRef::get(world, collision_entity1.entity);
+        if collision_entity0.generation
+            != entry0
+                .entry
+                .get_component::<Generation>()
+                .unwrap()
+                .generation
+        {
+            continue;
+        }
+        if collision_entity1.generation
+            != entry1
+                .entry
+                .get_component::<Generation>()
+                .unwrap()
+                .generation
+        {
+            continue;
+        }
 
-        let result = collide(
-            collidable0,
-            collision_entity0.generation,
-            collidable1,
-            collision_entity1.generation,
-            collision_time,
-        );
-        if let Some((new_collidable0, new_collidable1)) = result {
-            if let Some(c) = new_collidable0 {
-                collision_detection_data.remove(collision_entity0);
-                write_collidable(world, collision_entity0.entity, &c);
-                collision_detection_data.add(
-                    world,
-                    collision_entity0.next(),
-                    &c,
-                    collision_time,
-                    simulation_data.next_time,
-                );
-            }
-            if let Some(c) = new_collidable1 {
-                collision_detection_data.remove(collision_entity1);
-                write_collidable(world, collision_entity1.entity, &c);
-                collision_detection_data.add(
-                    world,
-                    collision_entity1.next(),
-                    &c,
-                    collision_time,
-                    simulation_data.next_time,
-                );
-            }
+        let new_entities = collide(world, &entry0, &entry1, collision_time);
+        for entity in new_entities.iter() {
+            collision_detection_data.add(world, *entity, collision_time, simulation_data.next_time);
         }
     }
 }
