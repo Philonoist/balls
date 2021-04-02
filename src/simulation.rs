@@ -51,7 +51,6 @@ pub fn advance_time(
 }
 
 pub fn adjust_simulation_speed(resources: &mut Resources, factor: f64) {
-    if let Some(mut simulation_config) = resources.get_mut::<SimulationConfig>() {
-        simulation_config.time_delta *= factor;
-    }
+    let mut simulation_config = resources.get_mut::<SimulationConfig>().unwrap();
+    simulation_config.time_delta *= factor;
 }

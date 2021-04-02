@@ -70,7 +70,7 @@ fn init_walls(world: &mut World, config: &GenerationConfig) {
 fn init_balls(world: &mut World, config: &GenerationConfig) {
     // let mut rng = rand::thread_rng();
     let mut rng = Pcg64::new(0xcafef00dd15ea5e5, 0xa02bdbf7bb3c0a7ac28fa16a64abf96);
-    let n_balls = 1000;
+    let n_balls = 150;
     let mut balls = std::vec::Vec::<(Ball, Trails, CollidableType, Generation)>::new();
     balls.reserve(n_balls);
 
@@ -78,12 +78,15 @@ fn init_balls(world: &mut World, config: &GenerationConfig) {
         Vector3::new(0.9, 0.8, 0.7),
         Vector3::new(0.7, 0.9, 0.8),
         Vector3::new(0.8, 0.7, 0.9),
+        Vector3::new(0.9, 0.7, 0.8),
+        Vector3::new(0.8, 0.9, 0.7),
+        Vector3::new(0.7, 0.8, 0.9),
     ];
 
     while balls.len() < n_balls {
         let angle = rng.gen_range(0.0..(std::f64::consts::TAU));
         let speed = rng.gen_range(3.0..50.0);
-        let radius = rng.gen_range(2.0..30.0);
+        let radius = rng.gen_range(10.0..30.0);
         let ball = Ball {
             position: Vector2::new(
                 rng.gen_range(radius..(config.width as f64 - radius)),

@@ -11,7 +11,7 @@ pub mod world_gen;
 
 use collision::CollisionDetectionData;
 use legion::*;
-use render::{init_graphics, DisplayConfig};
+use render::{init_graphics, DisplayConfig, Graphics};
 use simulation::{adjust_simulation_speed, init_simulation, SimulationConfig};
 use world_gen::{init_world, GenerationConfig};
 
@@ -28,6 +28,7 @@ pub fn main() {
         width: WIDTH,
         height: HEIGHT,
         max_vertices: 60000,
+        blur: true,
     });
     let mut world = World::default();
 
@@ -100,6 +101,36 @@ pub fn main() {
             ..
         } => {
             adjust_simulation_speed(&mut resources, 1. / 1.1);
+        }
+        Event::WindowEvent {
+            event:
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            virtual_keycode: Some(VirtualKeyCode::B),
+                            ..
+                        },
+                    ..
+                },
+            ..
+        } => {
+            let mut graphics = resources.get_mut::<Graphics>().unwrap();
+            graphics.config.blur = true;
+        }
+        Event::WindowEvent {
+            event:
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            virtual_keycode: Some(VirtualKeyCode::N),
+                            ..
+                        },
+                    ..
+                },
+            ..
+        } => {
+            let mut graphics = resources.get_mut::<Graphics>().unwrap();
+            graphics.config.blur = false;
         }
         Event::RedrawEventsCleared => {
             schedule.execute(&mut world, &mut resources);

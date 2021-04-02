@@ -1,4 +1,4 @@
-use crate::{ball::Ball, ball::Trails, simulation::SimulationData};
+use crate::{ball::Ball, ball::Trail, ball::Trails, simulation::SimulationData};
 use legion::IntoQuery;
 use legion::{system, world::SubWorld};
 use nalgebra::Vector2;
@@ -39,6 +39,7 @@ pub struct DisplayConfig {
     pub width: u32,
     pub height: u32,
     pub max_vertices: i32,
+    pub blur: bool,
 }
 
 #[derive(Default, Copy, Clone)]
@@ -52,7 +53,7 @@ pub struct Vertex {
 vulkano::impl_vertex!(Vertex, position, coords, color, trail_length, total_portion);
 
 pub struct Graphics {
-    config: DisplayConfig,
+    pub config: DisplayConfig,
     instance: Arc<Instance>,
     device: Arc<Device>,
     queue: Arc<Queue>,
@@ -381,7 +382,19 @@ pub fn render_balls(
         let mut vertex_index = 0;
         let mut index_index = 0;
         for (ball, trails) in <(&Ball, &Trails)>::query().iter(world) {
-            for trail in trails.trails.iter() {
+            let mut local_trails: Vec<Trail>;
+            let all_trails = if !graphics.config.blur {
+                local_trails = vec![Trail {
+                    position0: ball.position,
+                    position1: ball.position,
+                    initial_time: simulation_data.time,
+                    final_time: simulation_data.next_time,
+                }];
+                &local_trails
+            } else {
+                &trails.trails
+            };
+            for trail in all_trails {
                 let mut u_vec = trail.position1 - trail.position0;
                 let trail_length = u_vec.norm() / ball.radius;
                 if u_vec.norm() < 0.001 {
