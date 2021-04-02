@@ -14,7 +14,6 @@ use legion::{
 };
 use legion::{EntityStore, IntoQuery};
 use log::debug;
-use maybe_owned::MaybeOwned;
 use ordered_float::OrderedFloat;
 use priority_queue::PriorityQueue;
 

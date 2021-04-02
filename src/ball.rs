@@ -1,4 +1,4 @@
-use nalgebra::Vector2;
+use nalgebra::{Vector2, Vector3};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ball {
@@ -6,6 +6,7 @@ pub struct Ball {
     pub velocity: Vector2<f64>,
     pub radius: f64,
     pub initial_time: f64,
+    pub color: Vector3<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

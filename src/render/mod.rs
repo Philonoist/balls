@@ -45,10 +45,11 @@ pub struct DisplayConfig {
 pub struct Vertex {
     position: [f32; 2],
     coords: [f32; 2],
+    color: [f32; 3],
     trail_length: f32,
     total_portion: f32,
 }
-vulkano::impl_vertex!(Vertex, position, coords, trail_length, total_portion);
+vulkano::impl_vertex!(Vertex, position, coords, color, trail_length, total_portion);
 
 pub struct Graphics {
     config: DisplayConfig,
@@ -264,14 +265,17 @@ mod vs {
             #version 450
             layout(location = 0) in vec2 position;
             layout(location = 1) in vec2 coords;
-            layout(location = 2) in float trail_length;
-            layout(location = 3) in float total_portion;
+            layout(location = 2) in vec3 color;
+            layout(location = 3) in float trail_length;
+            layout(location = 4) in float total_portion;
             layout(location = 0) out vec2 outCoords;
-            layout(location = 1) out float out_trail_length;
-            layout(location = 2) out float out_total_portion;
+            layout(location = 1) out vec3 outColor;
+            layout(location = 2) out float out_trail_length;
+            layout(location = 3) out float out_total_portion;
             void main() {
                 gl_Position = vec4(position, 0.0, 1.0);
                 outCoords = coords;
+                outColor = color;
                 out_trail_length = trail_length;
                 out_total_portion = total_portion;
             }
@@ -287,8 +291,9 @@ mod fs {
             const float EPSILON = 0.0001;
             const float aa_pixels = 2.;
             layout(location = 0) in vec2 coords;
-            layout(location = 1) in float trail_length;
-            layout(location = 2) in float total_portion;
+            layout(location = 1) in vec3 color;
+            layout(location = 2) in float trail_length;
+            layout(location = 3) in float total_portion;
             layout(location = 0) out vec4 f_color;
 
             float correct_value(float val, float d){
@@ -316,7 +321,7 @@ mod fs {
                 // Note that seg reaches negative value at the sides.
                 float seg = t1 - t0;
                 float xwidth = length(vec2(dFdx(coords.x), dFdy(coords.x)));
-                seg = correct_value(seg, xwidth*0.5*aa_pixels);
+                seg = min(correct_value(seg, xwidth*0.5*aa_pixels), trail_length);
                 float normalized_length = (seg+EPSILON)/(trail_length+EPSILON)*total_portion;
                 float alpha = clamp(normalized_length, 0, 1);
                 // alpha=seg;
@@ -327,7 +332,7 @@ mod fs {
                 float factor = smoothstep(-0.5*aa_pixels, 0.5*aa_pixels, (1-dist)/pwidth);
                 // alpha = factor;
                 alpha *= factor;
-                f_color = vec4(1.0, 1.0, 0.0, alpha);
+                f_color = vec4(color, alpha);
             }
         "
     }
@@ -379,7 +384,11 @@ pub fn render_balls(
             for trail in trails.trails.iter() {
                 let mut u_vec = trail.position1 - trail.position0;
                 let trail_length = u_vec.norm() / ball.radius;
-                u_vec /= u_vec.norm();
+                if u_vec.norm() < 0.001 {
+                    u_vec = Vector2::new(1.0, 0.0);
+                } else {
+                    u_vec /= u_vec.norm();
+                }
                 let v_vec = Vector2::new(-u_vec[1], u_vec[0]);
 
                 index_buffer_data[index_index + 0] = (vertex_index) as u16;
@@ -399,6 +408,7 @@ pub fn render_balls(
                                 -1.0 + 2.0 * position[1] as f32 / graphics.config.height as f32,
                             ],
                             coords: [*ho as f32, *vo as f32],
+                            color: [ball.color[0], ball.color[1], ball.color[2]],
                             trail_length: trail_length as f32,
                             total_portion: ((trail.final_time - trail.initial_time)
                                 / (simulation_data.next_time - simulation_data.time))

@@ -6,9 +6,6 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies.sdl2]
-features = ['gfx']
-
 [dependencies.legion]
 git="https://github.com/amethyst/legion"
 branch="master"
@@ -17,7 +14,6 @@ branch="master"
 [dependencies.rand]
 [dependencies.fnv]
 [dependencies.rand_pcg]
-[dependencies.maybe-owned]
 
 [dependencies]
 log = ">=0.4.14"

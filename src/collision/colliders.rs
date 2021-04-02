@@ -3,7 +3,6 @@ use legion::{
     world::{EntryRef, SubWorld},
     Entity, EntityStore,
 };
-use maybe_owned::MaybeOwned;
 
 use crate::{
     advance::advance_single_ball,

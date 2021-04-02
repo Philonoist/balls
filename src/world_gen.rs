@@ -4,7 +4,7 @@ use crate::{
     collision::collidable::{CollidableType, Generation},
 };
 use legion::World;
-use nalgebra::Vector2;
+use nalgebra::{Vector2, Vector3};
 use rand::Rng;
 use rand_pcg::Pcg64;
 
@@ -74,6 +74,12 @@ fn init_balls(world: &mut World, config: &GenerationConfig) {
     let mut balls = std::vec::Vec::<(Ball, Trails, CollidableType, Generation)>::new();
     balls.reserve(n_balls);
 
+    let colors = vec![
+        Vector3::new(0.9, 0.8, 0.7),
+        Vector3::new(0.7, 0.9, 0.8),
+        Vector3::new(0.8, 0.7, 0.9),
+    ];
+
     while balls.len() < n_balls {
         let angle = rng.gen_range(0.0..(std::f64::consts::TAU));
         let speed = rng.gen_range(3.0..50.0);
@@ -86,6 +92,7 @@ fn init_balls(world: &mut World, config: &GenerationConfig) {
             velocity: Vector2::new(speed * angle.cos(), speed * angle.sin()),
             radius: radius,
             initial_time: 0.,
+            color: colors[rng.gen_range(0..colors.len())],
         };
 
         // Check it doesn't overlap with an existing ball.
