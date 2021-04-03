@@ -52,6 +52,12 @@ pub struct Vertex {
 }
 vulkano::impl_vertex!(Vertex, position, coords, color, trail_length, total_portion);
 
+#[derive(Default, Copy, Clone)]
+pub struct BasicVertex {
+    position: [f32; 2],
+}
+vulkano::impl_vertex!(BasicVertex, position);
+
 pub struct Graphics {
     pub config: DisplayConfig,
     instance: Arc<Instance>,
@@ -60,10 +66,12 @@ pub struct Graphics {
     swapchain: Arc<Swapchain<Window>>,
     dynamic_state: DynamicState,
     framebuffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
-    pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+    pipeline0: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+    pipeline1: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
     previous_frame_ends: Vec<Option<Box<dyn GpuFuture>>>,
     vertex_buffers: Vec<Arc<CpuAccessibleBuffer<[Vertex]>>>,
     index_buffers: Vec<Arc<CpuAccessibleBuffer<[u16]>>>,
+    basic_vertex_buffer: Arc<CpuAccessibleBuffer<[BasicVertex]>>,
 }
 
 fn window_size_dependent_setup(
@@ -166,7 +174,8 @@ pub fn init_graphics(display_config: DisplayConfig) -> (Graphics, EventLoop<()>)
     };
 
     let render_pass = Arc::new(
-        vulkano::single_pass_renderpass!(device.clone(),
+        vulkano::ordered_passes_renderpass!(
+            device.clone(),
             attachments: {
                 color: {
                     load: Clear,
@@ -175,26 +184,62 @@ pub fn init_graphics(display_config: DisplayConfig) -> (Graphics, EventLoop<()>)
                     samples: 1,
                 }
             },
-            pass: {
-                color: [color],
-                depth_stencil: {}
-            }
+            passes: [
+                {
+                    color: [color],
+                    depth_stencil: {},
+                    input: []
+                },
+                {
+                    color: [color],
+                    depth_stencil: {},
+                    input: []
+                }
+            ]
         )
         .unwrap(),
     );
 
     let (vs, fs) = create_shaders(&device);
-    let pipeline = Arc::new(
+    let pipeline0 = Arc::new(
         GraphicsPipeline::start()
             .vertex_input_single_buffer::<Vertex>()
             .vertex_shader(vs.main_entry_point(), ())
             .triangle_list()
             .viewports_dynamic_scissors_irrelevant(1)
             .fragment_shader(fs.main_entry_point(), ())
+            .depth_stencil_disabled()
             .blend_collective(AttachmentBlend {
                 enabled: true,
                 color_op: BlendOp::Add,
                 color_source: BlendFactor::SrcAlpha,
+                color_destination: BlendFactor::One,
+                alpha_op: BlendOp::Add,
+                alpha_source: BlendFactor::One,
+                alpha_destination: BlendFactor::One,
+                mask_red: true,
+                mask_green: true,
+                mask_blue: true,
+                mask_alpha: true,
+            })
+            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            .build(device.clone())
+            .unwrap(),
+    );
+
+    let (vs1, fs1) = create_shaders1(&device);
+    let pipeline1 = Arc::new(
+        GraphicsPipeline::start()
+            .vertex_input_single_buffer::<BasicVertex>()
+            .vertex_shader(vs1.main_entry_point(), ())
+            .triangle_list()
+            .viewports_dynamic_scissors_irrelevant(1)
+            .fragment_shader(fs1.main_entry_point(), ())
+            .depth_stencil_disabled()
+            .blend_collective(AttachmentBlend {
+                enabled: true,
+                color_op: BlendOp::Add,
+                color_source: BlendFactor::OneMinusDstAlpha,
                 color_destination: BlendFactor::One,
                 alpha_op: BlendOp::Add,
                 alpha_source: BlendFactor::One,
@@ -204,7 +249,7 @@ pub fn init_graphics(display_config: DisplayConfig) -> (Graphics, EventLoop<()>)
                 mask_blue: true,
                 mask_alpha: true,
             })
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            .render_pass(Subpass::from(render_pass.clone(), 1).unwrap())
             .build(device.clone())
             .unwrap(),
     );
@@ -227,6 +272,34 @@ pub fn init_graphics(display_config: DisplayConfig) -> (Graphics, EventLoop<()>)
             .expect("failed to create buffer")
         })
         .collect::<Vec<_>>();
+    let basic_vertex_buffer = CpuAccessibleBuffer::from_iter(
+        device.clone(),
+        BufferUsage::all(),
+        false,
+        [
+            BasicVertex {
+                position: [-1.0, -1.0],
+            },
+            BasicVertex {
+                position: [1.0, -1.0],
+            },
+            BasicVertex {
+                position: [-1.0, 1.0],
+            },
+            BasicVertex {
+                position: [-1.0, 1.0],
+            },
+            BasicVertex {
+                position: [1.0, -1.0],
+            },
+            BasicVertex {
+                position: [1.0, 1.0],
+            },
+        ]
+        .iter()
+        .cloned(),
+    )
+    .expect("failed to create buffer");
 
     let index_buffers = images
         .iter()
@@ -250,10 +323,12 @@ pub fn init_graphics(display_config: DisplayConfig) -> (Graphics, EventLoop<()>)
             swapchain: swapchain,
             dynamic_state: dynamic_state,
             framebuffers: framebuffers,
-            pipeline: pipeline,
+            pipeline0: pipeline0,
+            pipeline1: pipeline1,
             previous_frame_ends: previous_frame_ends,
             vertex_buffers: vertex_buffers,
             index_buffers: index_buffers,
+            basic_vertex_buffer: basic_vertex_buffer,
         },
         event_loop,
     )
@@ -338,9 +413,42 @@ mod fs {
         "
     }
 }
+
+mod vs1 {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        src: "
+            #version 450
+            layout(location = 0) in vec2 position;
+            void main() {
+                gl_Position = vec4(position, 0.0, 1.0);
+            }
+        "
+    }
+}
+
+mod fs1 {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        src: "
+            #version 450
+            layout(location = 0) out vec4 f_color;
+
+            void main() {
+                f_color = vec4(0.23, 0.23, 0.25, 1.0);
+            }
+        "
+    }
+}
+
 fn create_shaders(device: &Arc<Device>) -> (vs::Shader, fs::Shader) {
     let vs = vs::Shader::load(device.clone()).unwrap();
     let fs = fs::Shader::load(device.clone()).unwrap();
+    (vs, fs)
+}
+fn create_shaders1(device: &Arc<Device>) -> (vs1::Shader, fs1::Shader) {
+    let vs = vs1::Shader::load(device.clone()).unwrap();
+    let fs = fs1::Shader::load(device.clone()).unwrap();
     (vs, fs)
 }
 
@@ -361,7 +469,7 @@ pub fn render_balls(
             }
             Err(e) => panic!("Failed to acquire next image: {:?}", e),
         };
-    let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
+    let clear_values = vec![[0.0, 0.0, 0.0, 0.0].into()];
     let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
         graphics.device.clone(),
         graphics.queue.family(),
@@ -382,7 +490,7 @@ pub fn render_balls(
         let mut vertex_index = 0;
         let mut index_index = 0;
         for (ball, trails) in <(&Ball, &Trails)>::query().iter(world) {
-            let mut local_trails: Vec<Trail>;
+            let local_trails: Vec<Trail>;
             let all_trails = if !graphics.config.blur {
                 local_trails = vec![Trail {
                     position0: ball.position,
@@ -449,10 +557,21 @@ pub fn render_balls(
         )
         .unwrap()
         .draw_indexed(
-            graphics.pipeline.clone(),
+            graphics.pipeline0.clone(),
             &graphics.dynamic_state,
             vec![vertex_buffer.clone()],
             index_buffer.clone(),
+            (),
+            (),
+            vec![],
+        )
+        .unwrap()
+        .next_subpass(SubpassContents::Inline)
+        .unwrap()
+        .draw(
+            graphics.pipeline1.clone(),
+            &graphics.dynamic_state,
+            vec![graphics.basic_vertex_buffer.clone()],
             (),
             (),
             vec![],
